@@ -1,0 +1,75 @@
+## -------
+## Python build artifacts and caches
+## -------
+/dist/
+/build/
+/artifacts/
+*.egg-info/
+__pycache__/
+*.py[cod]
+
+# Virtual environments (uv creates .venv). uv.lock is NOT ignored — commit it.
+.venv/
+venv/
+
+# Tool caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+
+# Release pipeline scratch file — written by .github/workflows/release.yml
+release-notes.md
+
+## -------
+## Editors / IDEs
+## -------
+.vs/
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+*.code-workspace
+.history/
+.idea/
+
+## -------
+## Secrets / local config
+## -------
+.env
+.env.local
+
+## -------
+## macOS
+## -------
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+## -------
+## Windows
+## -------
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+## -------
+## Claude Code — ship the shared settings with the repo, even if a global
+## gitignore excludes .claude. Personal overrides stay ignored.
+## -------
+!.claude/
+.claude/*
+!.claude/settings.json
+!.claude/settings.json.template
+.claude/settings.local.json

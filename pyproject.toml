@@ -1,0 +1,86 @@
+# Token-templated — `scripts/init.ps1` (or init.sh) substitutes the `__…__`
+# placeholders. The PyPI distribution name is `__ProjectName__`; the importable
+# package is `__PackageName__` (a snake_case name derived from the project name
+# by the init script). See TEMPLATE.md (token table) and docs/AGENT-INIT-GUIDE.md.
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "__ProjectName__"
+version = "0.1.0"
+description = "__Description__"
+readme = "README.md"
+# Single source of truth for the language floor: CI, the release workflow, and
+# `uv` all read it. `.python-version` pins the default interpreter `uv` provisions
+# for local development. Raise both together when you adopt a newer language feature.
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "__Author__", email = "__AuthorEmail__" }]
+keywords = []
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Typing :: Typed",
+]
+
+# ---------------------------------------------------------------------------
+# Runtime dependencies
+#
+# Convention (see AGENTS.md "Dependencies"): add whatever the project genuinely
+# needs, but pin a sensible lower bound and let `uv lock` resolve the rest into
+# `uv.lock` (commit it). Document any non-obvious dependency with a comment.
+# ---------------------------------------------------------------------------
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/__GitHubOwner__/__ProjectName__"
+Repository = "https://github.com/__GitHubOwner__/__ProjectName__"
+Changelog = "https://github.com/__GitHubOwner__/__ProjectName__/blob/main/CHANGELOG.md"
+
+# Development tooling, installed by `uv sync` / `uv run` (PEP 735 dependency
+# groups). These are never published with the package.
+[dependency-groups]
+dev = [
+  "pytest>=8",
+  "mypy>=1.13",
+  "ruff>=0.8",
+]
+
+# hatchling builds a wheel from the src/ layout; point it at the import package.
+[tool.hatch.build.targets.wheel]
+packages = ["src/__PackageName__"]
+
+[tool.ruff]
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# A pragmatic, strict-leaning default set: pyflakes (F), pycodestyle (E/W),
+# isort (I), flake8-bugbear (B), pyupgrade (UP), flake8-simplify (SIM), and
+# Ruff's own rules (RUF). Tune to taste.
+select = ["E", "W", "F", "I", "B", "UP", "SIM", "RUF"]
+
+[tool.mypy]
+python_version = "3.12"
+# Type checking is the "warnings are errors" gate for this template.
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+# src layout: resolve the package from src/, and treat directories as namespace
+# package bases so same-named test modules in different directories don't collide
+# ("duplicate module named ...") as the test suite grows.
+mypy_path = "src"
+explicit_package_bases = true
+namespace_packages = true
+
+[tool.pytest.ini_options]
+# `error` turns any warning into a test failure — the runtime equivalent of
+# warnings-as-errors. `--strict-*` reject unknown markers and config typos.
+# `--import-mode=importlib` is the recommended mode for a src layout: tests need
+# no `__init__.py` and may share basenames across directories.
+addopts = "-ra --strict-markers --strict-config --import-mode=importlib"
+filterwarnings = ["error"]
+testpaths = ["tests"]
