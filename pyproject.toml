@@ -45,7 +45,7 @@ Changelog = "https://github.com/__GitHubOwner__/__ProjectName__/blob/main/CHANGE
 [dependency-groups]
 dev = [
   "pytest>=8",
-  "mypy>=1.13",
+  "mypy>=2.1.0",
   "ruff>=0.8",
 ]
 
