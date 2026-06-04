@@ -44,7 +44,7 @@ Changelog = "https://github.com/__GitHubOwner__/__ProjectName__/blob/main/CHANGE
 # groups). These are never published with the package.
 [dependency-groups]
 dev = [
-  "pytest>=8",
+  "pytest>=9.0.3",
   "mypy>=1.13",
   "ruff>=0.8",
 ]
