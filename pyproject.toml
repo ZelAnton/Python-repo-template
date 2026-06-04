@@ -46,7 +46,7 @@ Changelog = "https://github.com/__GitHubOwner__/__ProjectName__/blob/main/CHANGE
 dev = [
   "pytest>=8",
   "mypy>=1.13",
-  "ruff>=0.8",
+  "ruff>=0.15.16",
 ]
 
 # hatchling builds a wheel from the src/ layout; point it at the import package.
