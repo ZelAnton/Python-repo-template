@@ -13,7 +13,7 @@
 # Usage: bash ./scripts/check-env.sh
 
 set -euo pipefail
-case "${1:-}" in -h|--help) sed -n '2,15p' "$0"; exit 0 ;; esac
+case "${1:-}" in -h|--help) sed -n '2,13p' "$0"; exit 0 ;; esac
 
 problems=()
 echo "==> Checking environment for Python development"

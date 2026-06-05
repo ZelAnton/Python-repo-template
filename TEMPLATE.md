@@ -96,6 +96,16 @@ conventions for agents in [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md).
 - **CodeQL** — `.github/workflows/codeql.yml`. Delete it if you don't want GitHub's
   static analysis.
 
+## Template self-test in CI
+
+Each uv-based CI job starts with an *Initialize template placeholders* step.
+In this template repo it stamps the throwaway runner checkout with a dummy
+project name (the placeholder `__ProjectName__` is not a valid Python
+distribution name, so `uv` could not even parse `pyproject.toml`), which also
+end-to-end-tests the init script on every push. In a repo created from the
+template the step is a guaranteed no-op (it requires `TEMPLATE.md` *and*
+`scripts/init.sh`, both deleted by init) — keep it or delete it, either is fine.
+
 ## Security hardening (on by default)
 
 - **Pinned actions** — every GitHub Action is pinned to a full commit SHA (with a

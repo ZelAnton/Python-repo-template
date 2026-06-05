@@ -10,7 +10,7 @@ __Description__
 
 ## Installation
 
-Available on [PyPI](https://pypi.org).
+Available on [PyPI](https://pypi.org/project/__ProjectName__/).
 
 ```sh
 pip install __ProjectName__

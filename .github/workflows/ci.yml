@@ -41,6 +41,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # Template self-test: in the template repo itself the project-name
+      # placeholder token is not a valid Python distribution name (PEP 508 names
+      # cannot start or end with an underscore), so uv cannot even parse
+      # pyproject.toml. Stamp the throwaway runner checkout with a dummy name
+      # first — this doubles as an end-to-end test of the init script. The
+      # condition deliberately avoids the literal token (init would substitute it
+      # here too): TEMPLATE.md and the init script coexist only in the template
+      # repo (init deletes both), so in a generated repo this step is a no-op.
+      - name: Initialize template placeholders (no-op in generated repos)
+        shell: bash
+        run: |
+          if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
+            bash ./scripts/init.sh --project-name template-self-test
+          fi
       # setup-uv installs uv and provisions the Python pinned by .python-version /
       # requires-python on demand; enable-cache reuses the resolver/download cache.
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
@@ -55,6 +69,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # Template self-test — see the `lint` job's comment.
+      - name: Initialize template placeholders (no-op in generated repos)
+        shell: bash
+        run: |
+          if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
+            bash ./scripts/init.sh --project-name template-self-test
+          fi
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
@@ -70,6 +91,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # Template self-test — see the `lint` job's comment. `shell: bash` exists on
+      # all three runner OSes (Git Bash on Windows).
+      - name: Initialize template placeholders (no-op in generated repos)
+        shell: bash
+        run: |
+          if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
+            bash ./scripts/init.sh --project-name template-self-test
+          fi
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
@@ -81,6 +110,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # Template self-test — see the `lint` job's comment.
+      - name: Initialize template placeholders (no-op in generated repos)
+        shell: bash
+        run: |
+          if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
+            bash ./scripts/init.sh --project-name template-self-test
+          fi
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true
@@ -92,6 +128,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # Template self-test — see the `lint` job's comment.
+      - name: Initialize template placeholders (no-op in generated repos)
+        shell: bash
+        run: |
+          if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
+            bash ./scripts/init.sh --project-name template-self-test
+          fi
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
           enable-cache: true

@@ -4,7 +4,9 @@
 # by the init script). See TEMPLATE.md (token table) and docs/AGENT-INIT-GUIDE.md.
 
 [build-system]
-requires = ["hatchling"]
+# >=1.27: first hatchling release that understands PEP 639 license metadata
+# (the SPDX `license` string + `license-files` used below).
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
