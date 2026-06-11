@@ -6,7 +6,7 @@
 [build-system]
 # >=1.27: first hatchling release that understands PEP 639 license metadata
 # (the SPDX `license` string + `license-files` used below).
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.30.1"]
 build-backend = "hatchling.build"
 
 [project]
