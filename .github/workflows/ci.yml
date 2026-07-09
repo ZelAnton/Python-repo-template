@@ -21,9 +21,9 @@ jobs:
       # Actions are pinned to a full commit SHA (supply-chain hardening); the
       # trailing comment records the human-readable version. Dependabot bumps the
       # SHA and updates the comment on its weekly run.
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.x'
 
@@ -40,7 +40,7 @@ jobs:
     name: ruff
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       # Template self-test: in the template repo itself the project-name
       # placeholder token is not a valid Python distribution name (PEP 508 names
       # cannot start or end with an underscore), so uv cannot even parse
@@ -57,7 +57,7 @@ jobs:
           fi
       # setup-uv installs uv and provisions the Python pinned by .python-version /
       # requires-python on demand; enable-cache reuses the resolver/download cache.
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: true
       # Formatting must be clean (CI gate) and the lint set must pass.
@@ -68,7 +68,7 @@ jobs:
     name: mypy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       # Template self-test — see the `lint` job's comment.
       - name: Initialize template placeholders (no-op in generated repos)
         shell: bash
@@ -76,7 +76,7 @@ jobs:
           if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
             bash ./scripts/init.sh --project-name template-self-test
           fi
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: true
       # mypy --strict is this template's warnings-as-errors gate for types.
@@ -90,7 +90,7 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       # Template self-test — see the `lint` job's comment. `shell: bash` exists on
       # all three runner OSes (Git Bash on Windows).
       - name: Initialize template placeholders (no-op in generated repos)
@@ -99,7 +99,7 @@ jobs:
           if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
             bash ./scripts/init.sh --project-name template-self-test
           fi
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: true
       # `uv run` provisions the interpreter, syncs the env, then runs pytest.
@@ -109,7 +109,7 @@ jobs:
     name: build (wheel + sdist)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       # Template self-test — see the `lint` job's comment.
       - name: Initialize template placeholders (no-op in generated repos)
         shell: bash
@@ -117,7 +117,7 @@ jobs:
           if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
             bash ./scripts/init.sh --project-name template-self-test
           fi
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: true
       # Prove the package builds cleanly — the same step the release runs.
@@ -127,7 +127,7 @@ jobs:
     name: pip-audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       # Template self-test — see the `lint` job's comment.
       - name: Initialize template placeholders (no-op in generated repos)
         shell: bash
@@ -135,7 +135,7 @@ jobs:
           if [ -f TEMPLATE.md ] && [ -f scripts/init.sh ]; then
             bash ./scripts/init.sh --project-name template-self-test
           fi
-      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           enable-cache: true
       # Scan the resolved dependency tree against the PyPI Advisory Database
