@@ -4,8 +4,9 @@
 # by the init script). See TEMPLATE.md (token table) and docs/AGENT-INIT-GUIDE.md.
 
 [build-system]
-# >=1.27: first hatchling release that understands PEP 639 license metadata
-# (the SPDX `license` string + `license-files` used below).
+# PEP 639 license metadata (the SPDX `license` string + `license-files` used
+# below) needs hatchling >=1.27; the floor tracks the current release and is
+# bumped by Dependabot.
 requires = ["hatchling>=1.31.0"]
 build-backend = "hatchling.build"
 
