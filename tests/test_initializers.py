@@ -31,7 +31,7 @@ PROJECT_ARGS = [
 def posix_bash() -> str | None:
     candidates: list[str] = []
     if os.name == "nt":
-        program_files = os.environ.get("ProgramFiles")
+        program_files = os.environ.get("PROGRAMFILES")
         if program_files:
             candidates.append(str(Path(program_files) / "Git" / "bin" / "bash.exe"))
     bash = shutil.which("bash")
@@ -137,12 +137,13 @@ def run_initializer(
         bash = posix_bash()
         if not use_wsl and bash is None:
             raise RuntimeError("bash is required to run the POSIX initializer")
+        bash_command = bash or "bash"
         if use_wsl and len(script_path) > 2 and script_path[1] == ":":
             script_path = f"/mnt/{script_path[0].lower()}{script_path[2:].replace(os.sep, '/')}"
         elif os.name == "nt" and len(script_path) > 2 and script_path[1] == ":":
             script_path = f"/{script_path[0].lower()}{script_path[2:].replace(os.sep, '/')}"
         command = [
-            "wsl.exe" if use_wsl else bash,
+            "wsl.exe" if use_wsl else bash_command,
             *(["env", f"TEMPLATE_INIT_FAIL_AT={failure_at}"] if use_wsl and failure_at else []),
             *(["bash"] if use_wsl else []),
             script_path,
@@ -333,6 +334,7 @@ def test_posix_find_failures_are_reported_before_mutation(tmp_path: Path) -> Non
     real_find = shutil.which("find")
     if real_find is None:
         pytest.skip("find is required to test the POSIX initializer")
+    assert real_find is not None
     failing_find = command_dir / "find"
     failing_find.write_text(f'#!/bin/sh\n{shlex.quote(real_find)} "$@"\nexit 73\n')
     failing_find.chmod(0o755)
