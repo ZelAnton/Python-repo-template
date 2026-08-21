@@ -37,6 +37,20 @@ def available_initializers() -> list[str]:
     return available
 
 
+def wsl_available() -> bool:
+    if os.name != "nt":
+        return False
+    try:
+        probe = subprocess.run(
+            ["wsl.exe", "-e", "true"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    return probe.returncode == 0
+
+
 @pytest.fixture(params=available_initializers())
 def initializer(request: pytest.FixtureRequest) -> str:
     return str(request.param)
@@ -95,16 +109,17 @@ def run_initializer(
             command.append("-KeepScript")
     else:
         script_path = str(checkout / "scripts" / "init.sh")
-        if os.name == "nt" and len(script_path) > 2 and script_path[1] == ":":
+        use_wsl = os.name == "nt" and wsl_available()
+        if use_wsl and len(script_path) > 2 and script_path[1] == ":":
             script_path = f"/mnt/{script_path[0].lower()}{script_path[2:].replace(os.sep, '/')}"
         command = [
-            "wsl.exe" if os.name == "nt" else "bash",
+            "wsl.exe" if use_wsl else "bash",
             *(
                 ["env", f"TEMPLATE_INIT_FAIL_AT={failure_at}"]
-                if os.name == "nt" and failure_at
+                if use_wsl and failure_at
                 else []
             ),
-            *(["bash"] if os.name == "nt" else []),
+            *(["bash"] if use_wsl else []),
             script_path,
             "--project-name",
             *arguments,

@@ -156,7 +156,9 @@ assert_safe_metadata() {
     unsafe=1
   else
     unicode_status=$?
-    if [ "$unicode_status" -gt 1 ]; then unsafe=1; fi
+    if [ "$unicode_status" -gt 1 ]; then
+      die "preflight could not stage metadata validation for $label."
+    fi
   fi
   case "$value" in
     *$'\302\205'*|*$'\342\200\250'*|*$'\342\200\251'*) unsafe=1 ;;
