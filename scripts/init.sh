@@ -245,20 +245,32 @@ is_excluded() {
   esac
 }
 
+make_find_list() {
+  local list_file
+  list_file="$(mktemp "$transaction_root/find.XXXXXX")" || return 1
+  if ! find "$@" -print0 > "$list_file"; then
+    if ! rm -f "$list_file"; then return 1; fi
+    return 1
+  fi
+  printf '%s\n' "$list_file"
+}
+
 copy_mutable_tree() {
-  local source_root="$1" destination_root="$2" item relative destination
+  local source_root="$1" destination_root="$2" item relative destination find_list
   mkdir -p "$destination_root"
+  if ! find_list="$(make_find_list "$source_root")"; then return 1; fi
   while IFS= read -r -d '' item; do
     [ "$item" = "$source_root" ] && continue
     is_excluded "$item" && continue
     relative="${item#"$source_root"/}"
     destination="$destination_root/$relative"
     if [ -d "$item" ] && [ ! -L "$item" ]; then mkdir -p "$destination"; else mkdir -p "$(dirname "$destination")"; cp -p "$item" "$destination"; fi
-  done < <(find "$source_root" -print0)
+  done < "$find_list"
 }
 
 remove_mutable_tree() {
-  local root="$1" item
+  local root="$1" item find_list child_list
+  if ! find_list="$(make_find_list "$root" -depth)"; then return 1; fi
   while IFS= read -r -d '' item; do
     [ "$item" = "$root" ] && continue
     is_excluded "$item" && continue
@@ -267,16 +279,17 @@ remove_mutable_tree() {
       # other removal failure to the transaction owner.
       if ! rmdir "$item" 2>/dev/null; then
         local mutable_child=0 child
+        if ! child_list="$(make_find_list "$item")"; then return 1; fi
         while IFS= read -r -d '' child; do
           [ "$child" = "$item" ] && continue
           if ! is_excluded "$child"; then mutable_child=1; break; fi
-        done < <(find "$item" -print0)
+        done < "$child_list"
         if [ "$mutable_child" -ne 0 ]; then return 1; fi
       fi
     else
       rm -f "$item" || return 1
     fi
-  done < <(find "$root" -depth -print0)
+  done < "$find_list"
 }
 
 remove_empty_directory() {
@@ -382,6 +395,9 @@ plan_contains() {
 
 # Stage approved content while completing preflight; no checkout file is changed
 # until the candidate and rollback trees have been prepared below.
+if ! find_list="$(make_find_list "$repo_root" -type d \( -name .git -o -name .jj -o -name .venv -o -name dist -o -name build -o -name __pycache__ \) -prune -o -type f)"; then
+  die "preflight could not enumerate files under '$repo_root'."
+fi
 while IFS= read -r -d '' file; do
   [ "$file" = "$self" ] || [ "$file" = "$sibling_ps1" ] || {
     if ! content="$(cat "$file"; producer_status=$?; if [ "$producer_status" -ne 0 ]; then exit "$producer_status"; fi; printf '\001' || exit "$?")"; then
@@ -405,8 +421,11 @@ while IFS= read -r -d '' file; do
       content_count=$((content_count + 1))
     fi
   }
-done < <(find "$repo_root" -type d \( -name .git -o -name .jj -o -name .venv -o -name dist -o -name build -o -name __pycache__ \) -prune -o -type f -print0)
+done < "$find_list"
 
+if ! find_list="$(make_find_list "$repo_root" -depth)"; then
+  die "preflight could not enumerate paths under '$repo_root'."
+fi
 while IFS= read -r -d '' item; do
   is_excluded "$item" && continue
   base="$(basename "$item")"
@@ -420,7 +439,7 @@ while IFS= read -r -d '' item; do
   printf '%s\0' "$item" >> "$rename_sources_plan"
   printf '%s\0' "$target" >> "$rename_targets_plan"
   printf '%s\0%s\0%s\0' "$item" "$newbase" "$target" >> "$rename_plan"
-done < <(find "$repo_root" -depth -print0)
+done < "$find_list"
 
 while IFS= read -r -d '' source; do
   IFS= read -r -d '' newbase || die "preflight could not read the rename plan."
@@ -447,12 +466,15 @@ fi
 
 copy_mutable_tree "$repo_root" "$candidate_root"
 
+if ! find_list="$(make_find_list "$content_root" -type f)"; then
+  die "candidate could not enumerate staged files."
+fi
 while IFS= read -r -d '' staged; do
   relative="${staged#"$content_root"/}"
   candidate="$candidate_root/$relative"
   mkdir -p "$(dirname "$candidate")"
   cp -p "$staged" "$candidate"
-done < <(find "$content_root" -type f -print0)
+done < "$find_list"
 inject_failure content-write
 
 while IFS= read -r -d '' source; do
@@ -474,6 +496,9 @@ inject_failure template-removal
 copy_mutable_tree "$repo_root" "$rollback_root"
 transaction_active=1
 inject_failure apply-content-write
+if ! find_list="$(make_find_list "$content_root" -type f)"; then
+  die "apply could not enumerate staged files."
+fi
 while IFS= read -r -d '' staged; do
   relative="${staged#"$content_root"/}"
   destination="$repo_root/$relative"
@@ -482,7 +507,7 @@ while IFS= read -r -d '' staged; do
   cp -p "$staged" "$temporary"
   mv -f "$temporary" "$destination"
   temporary_path=""
-done < <(find "$content_root" -type f -print0)
+done < "$find_list"
 inject_failure apply-path-rename
 while IFS= read -r -d '' source; do
   IFS= read -r -d '' newbase || die "preflight could not read the rename plan."

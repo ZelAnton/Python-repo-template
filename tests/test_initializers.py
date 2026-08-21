@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -279,6 +280,28 @@ def test_posix_preflight_producer_failures_are_reported(tool: str, tmp_path: Pat
     output = result.stdout + result.stderr
     expected = "cannot read" if tool == "cat" else "could not stage"
     assert expected in output
+    assert tree_snapshot(checkout) == before
+
+
+def test_posix_find_failures_are_reported_before_mutation(tmp_path: Path) -> None:
+    if os.name == "nt":
+        pytest.skip("POSIX command failure injection requires a native POSIX shell")
+    checkout = tmp_path / "checkout"
+    copy_template(checkout)
+    command_dir = tmp_path / "bin"
+    command_dir.mkdir()
+    real_find = shutil.which("find")
+    if real_find is None:
+        pytest.skip("find is required to test the POSIX initializer")
+    failing_find = command_dir / "find"
+    failing_find.write_text(f'#!/bin/sh\n{shlex.quote(real_find)} "$@"\nexit 73\n')
+    failing_find.chmod(0o755)
+    before = tree_snapshot(checkout)
+
+    result = run_initializer("bash", checkout, path_prefix=command_dir)
+
+    assert result.returncode != 0
+    assert "enumerate" in (result.stdout + result.stderr)
     assert tree_snapshot(checkout) == before
 
 
