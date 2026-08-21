@@ -44,13 +44,24 @@ def wsl_available() -> bool:
         return False
     try:
         probe = subprocess.run(
-            ["wsl.exe", "-e", "true"],
+            ["wsl.exe", "--list", "--quiet"],
             capture_output=True,
             check=False,
         )
     except OSError:
         return False
-    return probe.returncode == 0
+    output = probe.stdout
+    encoding = "utf-16-le" if b"\x00" in output else "utf-8"
+    lines = output.decode(encoding, errors="replace").splitlines()
+    error_markers = (
+        "windows subsystem for linux",
+        "distributions can be installed",
+        "no installed distributions",
+    )
+    return probe.returncode == 0 and any(
+        line.strip() and not any(marker in line.lower() for marker in error_markers)
+        for line in lines
+    )
 
 
 @pytest.fixture(params=available_initializers())

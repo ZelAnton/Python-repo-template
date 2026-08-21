@@ -4,6 +4,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -24,6 +25,37 @@ _COPY_IGNORE = shutil.ignore_patterns(
     ".pytest_cache",
     ".mypy_cache",
     ".ruff_cache",
+)
+
+
+@cache
+def wsl_available() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        probe = subprocess.run(
+            ["wsl.exe", "--list", "--quiet"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    output = probe.stdout
+    encoding = "utf-16-le" if b"\x00" in output else "utf-8"
+    lines = output.decode(encoding, errors="replace").splitlines()
+    error_markers = (
+        "windows subsystem for linux",
+        "distributions can be installed",
+        "no installed distributions",
+    )
+    return probe.returncode == 0 and any(
+        line.strip() and not any(marker in line.lower() for marker in error_markers)
+        for line in lines
+    )
+
+
+POSIX_SKIP = pytest.mark.skipif(
+    not wsl_available(), reason="POSIX initializer tests require a native POSIX shell"
 )
 
 
@@ -96,6 +128,7 @@ OPTION_LIKE_TOKENS = (*VALUE_OPTIONS, "--keep-script", "-h", "--help")
     "option",
     VALUE_OPTIONS,
 )
+@POSIX_SKIP
 def test_posix_rejects_terminal_missing_values_before_mutation(tmp_path: Path, option: str) -> None:
     checkout = copy_template(tmp_path)
     before = checkout_snapshot(checkout)
@@ -116,6 +149,7 @@ def test_posix_rejects_terminal_missing_values_before_mutation(tmp_path: Path, o
         for following_option in OPTION_LIKE_TOKENS
     ],
 )
+@POSIX_SKIP
 def test_posix_rejects_option_like_values_before_mutation(
     tmp_path: Path, option: str, following_option: str
 ) -> None:
@@ -132,6 +166,7 @@ def test_posix_rejects_option_like_values_before_mutation(
     assert checkout_snapshot(checkout) == before
 
 
+@POSIX_SKIP
 def test_posix_accepts_all_values_and_keeps_scripts(tmp_path: Path) -> None:
     checkout = copy_template(tmp_path)
 
@@ -168,6 +203,7 @@ def test_posix_accepts_all_values_and_keeps_scripts(tmp_path: Path) -> None:
     assert (checkout / "scripts/init.ps1").is_file()
 
 
+@POSIX_SKIP
 def test_posix_preserves_explicit_empty_values_as_current_defaults(tmp_path: Path) -> None:
     checkout = copy_template(tmp_path)
 

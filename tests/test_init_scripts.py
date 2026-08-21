@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import tomllib
 from collections.abc import Iterator
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -26,8 +27,36 @@ SAFE_VALUES = {
 }
 
 
+@cache
+def _wsl_available() -> bool:
+    if os.name != "nt":
+        return True
+    try:
+        probe = subprocess.run(
+            ["wsl.exe", "--list", "--quiet"],
+            capture_output=True,
+            check=False,
+        )
+    except OSError:
+        return False
+    output = probe.stdout
+    encoding = "utf-16-le" if b"\x00" in output else "utf-8"
+    lines = output.decode(encoding, errors="replace").splitlines()
+    error_markers = (
+        "windows subsystem for linux",
+        "distributions can be installed",
+        "no installed distributions",
+    )
+    return probe.returncode == 0 and any(
+        line.strip() and not any(marker in line.lower() for marker in error_markers)
+        for line in lines
+    )
+
+
 def _bash_executable() -> str:
     if os.name == "nt":
+        if not _wsl_available():
+            pytest.skip("WSL is required to test init.sh on Windows")
         candidates = [
             r"C:\Program Files\Git\bin\bash.exe",
             r"C:\Program Files\Git\usr\bin\bash.exe",
