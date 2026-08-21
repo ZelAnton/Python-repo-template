@@ -35,12 +35,36 @@ die() { echo "error: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --project-name) project_name="${2:-}"; shift 2 ;;
-    --author)       author="${2:-}"; shift 2 ;;
-    --author-email) author_email="${2:-}"; shift 2 ;;
-    --github-owner) github_owner="${2:-}"; shift 2 ;;
-    --description)  description="${2:-}"; shift 2 ;;
-    --year)         year="${2:-}"; shift 2 ;;
+    --project-name)
+      [ "$#" -ge 2 ] || die "--project-name requires a value."
+      project_name="$2"
+      shift 2
+      ;;
+    --author)
+      [ "$#" -ge 2 ] || die "--author requires a value."
+      author="$2"
+      shift 2
+      ;;
+    --author-email)
+      [ "$#" -ge 2 ] || die "--author-email requires a value."
+      author_email="$2"
+      shift 2
+      ;;
+    --github-owner)
+      [ "$#" -ge 2 ] || die "--github-owner requires a value."
+      github_owner="$2"
+      shift 2
+      ;;
+    --description)
+      [ "$#" -ge 2 ] || die "--description requires a value."
+      description="$2"
+      shift 2
+      ;;
+    --year)
+      [ "$#" -ge 2 ] || die "--year requires a value."
+      year="$2"
+      shift 2
+      ;;
     --keep-script)  keep_script=1; shift ;;
     -h|--help)      sed -n '2,22p' "$0"; exit 0 ;;
     *)              die "unknown argument: $1" ;;
