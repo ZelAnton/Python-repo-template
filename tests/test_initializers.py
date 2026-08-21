@@ -114,11 +114,7 @@ def run_initializer(
             script_path = f"/mnt/{script_path[0].lower()}{script_path[2:].replace(os.sep, '/')}"
         command = [
             "wsl.exe" if use_wsl else "bash",
-            *(
-                ["env", f"TEMPLATE_INIT_FAIL_AT={failure_at}"]
-                if use_wsl and failure_at
-                else []
-            ),
+            *(["env", f"TEMPLATE_INIT_FAIL_AT={failure_at}"] if use_wsl and failure_at else []),
             *(["bash"] if use_wsl else []),
             script_path,
             "--project-name",
