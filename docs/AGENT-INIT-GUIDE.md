@@ -72,6 +72,16 @@ Confirm these facts by reading, not by assuming:
    substitutes tokens, derives and renames the `src/` package dir, activates
    `.claude/settings.json` from its `.template`, and deletes `TEMPLATE.md`, this
    guide, and (unless `-KeepScript`) both initializers — `check-env.{ps1,sh}` stay.
+   Metadata values are validated before any file is changed. Control characters,
+   quotes, backslashes, shell expansion/operators, and invalid GitHub owner names
+   are rejected; a failed validation leaves the checkout unchanged. The initializer
+   also preflights required reads, planned changes, removals, and parent-directory
+   permissions, then prepares a candidate and rollback snapshot. A failure during
+   writes, renames, settings activation, or template cleanup restores the checkout
+   and removes staging before reporting failure. If staging cleanup itself fails,
+   the command exits non-zero and reports the recoverable staging path. For
+   regression testing only, set `TEMPLATE_INIT_FAIL_AT` to a transaction boundary
+   (including `cleanup`); do not use this hook in normal initialization.
 4. **Verify**: `uv run pytest`, then `uv run ruff check . && uv run mypy`.
 5. Replace the placeholder `greet` with the real API, delete the sample test, fill in
    the `CLAUDE.md` "Architecture" section, run `uv lock` and commit the lockfile, and

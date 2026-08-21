@@ -42,6 +42,41 @@ if (-not $AuthorEmail) {
 }
 if (-not $GitHubOwner) { $GitHubOwner = 'your-org' }
 if (-not $Description) { $Description = 'TODO: project description' }
+if ($Year -lt 0) {
+    throw "Invalid -Year '$Year'. Use a non-negative number."
+}
+
+# These values are copied into TOML, Markdown, YAML block scalars, and shell
+# source. Reject characters that could change any of those contexts before the
+# first file is touched. Safe values are kept verbatim in every target format.
+$unsafeMetadataChars = [char[]]@('"', "'", '\', '$', '`', ';', '&', '|', '<', '>')
+$unsafeUnicodePattern = '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'
+$markdownUnsafeChars = [char[]]@('[', ']', '(', ')', '#', '*', '_', '~')
+$markdownBlockPattern = '(^[\t ]{4}|^[\t ]{0,3}(?:[-+*][\t ]+.*|[0-9]{1,9}[.)][\t ]+.*|[-+*]|[0-9]{1,9}[.)]|(?:-[\t ]*){3,}|(?:_[\t ]*){3,}|(?:\*[\t ]*){3,})$)'
+function Assert-SafeMetadata {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ParameterName,
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [switch]$RejectMarkdownSyntax
+    )
+
+    if ($Value -match $unsafeUnicodePattern -or $Value.IndexOfAny($unsafeMetadataChars) -ge 0) {
+        throw "Invalid $ParameterName. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+    }
+    if ($RejectMarkdownSyntax -and ($Value.IndexOfAny($markdownUnsafeChars) -ge 0 -or $Value -match $markdownBlockPattern)) {
+        throw "Invalid $ParameterName. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
+    }
+}
+
+Assert-SafeMetadata '-Author' $Author
+Assert-SafeMetadata '-AuthorEmail' $AuthorEmail
+Assert-SafeMetadata '-GitHubOwner' $GitHubOwner
+Assert-SafeMetadata '-Description' $Description -RejectMarkdownSyntax
+if ($GitHubOwner -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$') {
+    throw "Invalid -GitHubOwner '$GitHubOwner'. Use a GitHub owner name of 1-39 letters, digits, or internal hyphens."
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $selfPath = $PSCommandPath
@@ -73,16 +108,44 @@ function Get-PathKey([string]$path) {
     return [System.IO.Path]::GetFullPath($path).ToLowerInvariant()
 }
 
+function Assert-DirectoryWritable([string]$directory, [string]$operation) {
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+        throw "Preflight cannot $operation directory '$directory': it is missing."
+    }
+    $item = Get-Item -LiteralPath $directory -Force
+    if (($item.Attributes -band [System.IO.FileAttributes]::ReadOnly) -ne 0) {
+        throw "Preflight cannot $operation directory '$directory': it is read-only."
+    }
+    $probe = Join-Path $directory ".init-preflight-$([guid]::NewGuid().ToString('N'))"
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open($probe, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+        $stream.Dispose()
+        $stream = $null
+        Remove-Item -LiteralPath $probe -Force -ErrorAction Stop
+    } catch {
+        if ($stream) { $stream.Dispose() }
+        if (Test-Path -LiteralPath $probe) {
+            try { Remove-Item -LiteralPath $probe -Force -ErrorAction Stop } catch {
+                throw "Preflight cannot $operation directory '$directory': permission probe '$probe' could not be removed: $($_.Exception.Message)"
+            }
+        }
+        throw "Preflight cannot $operation directory '$directory': $($_.Exception.Message)"
+    }
+}
+
 function Assert-WritablePath([string]$path, [string]$operation) {
-    if (Test-Path -LiteralPath $path) {
+    $exists = Test-Path -LiteralPath $path
+    if ($exists) {
         $item = Get-Item -LiteralPath $path -Force
         if (($item.Attributes -band [System.IO.FileAttributes]::ReadOnly) -ne 0) {
             throw "Preflight cannot $operation '$path': it is read-only."
         }
     }
     $parent = Split-Path -Path $path -Parent
-    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
-        throw "Preflight cannot $operation '$path': parent directory '$parent' is missing."
+    Assert-DirectoryWritable $parent $operation
+    if ($exists -and $item.PSIsContainer) {
+        Assert-DirectoryWritable $path $operation
     }
 }
 
@@ -122,8 +185,14 @@ function Invoke-FailureInjection([string]$boundary) {
 function Write-StagedFileAtomically([string]$source, [string]$destination, [string]$transactionId) {
     $parent = Split-Path -Path $destination -Parent
     $temporary = Join-Path $parent ".init-$transactionId-$([System.IO.Path]::GetRandomFileName())"
-    Copy-Item -LiteralPath $source -Destination $temporary -Force
-    Move-Item -LiteralPath $temporary -Destination $destination -Force
+    try {
+        Copy-Item -LiteralPath $source -Destination $temporary -Force
+        Move-Item -LiteralPath $temporary -Destination $destination -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporary) {
+            Remove-Item -LiteralPath $temporary -Force -ErrorAction Stop
+        }
+    }
 }
 
 $claudeTemplate = Join-Path $repoRoot '.claude/settings.json.template'
@@ -134,6 +203,20 @@ $renamePlans = [System.Collections.Generic.List[object]]::new()
 $contentPlans = [System.Collections.Generic.List[object]]::new()
 $transactionRoot = $null
 $transactionStarted = $false
+$cleanupFailureInjected = $false
+
+function Remove-TransactionRoot([string]$path) {
+    if ($env:TEMPLATE_INIT_FAIL_AT -eq 'cleanup' -and -not $script:cleanupFailureInjected) {
+        $script:cleanupFailureInjected = $true
+        throw "Injected failure at 'cleanup'."
+    }
+    if ($path -and (Test-Path -LiteralPath $path)) {
+        Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
+    }
+    if ($path -and (Test-Path -LiteralPath $path)) {
+        throw "Transaction cleanup did not remove staging directory '$path'."
+    }
+}
 
 Write-Host "==> Initializing template as '$ProjectName' (package '$packageName')" -ForegroundColor Cyan
 
@@ -184,6 +267,7 @@ try {
             throw "Preflight cannot rename '$($plan.Source)': target directory is missing."
         }
         Assert-WritablePath $plan.Source 'rename'
+        Assert-WritablePath $plan.Target 'rename'
     }
 
     if (Test-Path -LiteralPath $claudeTemplate) {
@@ -274,12 +358,14 @@ try {
         if (Test-Path -LiteralPath $siblingSh) { Remove-Item -LiteralPath $siblingSh -Force }
         Remove-Item -LiteralPath $selfPath -Force
     }
+    Remove-TransactionRoot $transactionRoot
     $transactionStarted = $false
-    Remove-Item -LiteralPath $transactionRoot -Recurse -Force
+    $transactionRoot = $null
 } catch {
     $message = $_.Exception.Message
     $location = $_.InvocationInfo.PositionMessage
     $rollbackMessage = $null
+    $cleanupMessage = $null
     if ($transactionStarted) {
         try {
             Remove-MutableTree $repoRoot
@@ -289,9 +375,13 @@ try {
         }
     }
     if ($transactionRoot -and (Test-Path -LiteralPath $transactionRoot)) {
-        try { Remove-Item -LiteralPath $transactionRoot -Recurse -Force } catch { }
+        try { Remove-TransactionRoot $transactionRoot } catch { $cleanupMessage = $_.Exception.Message }
+    }
+    if ($rollbackMessage -and $cleanupMessage) {
+        throw "Initialization failed: $message at $location Rollback failed: $rollbackMessage Cleanup failed: $cleanupMessage Staging artifact: $transactionRoot"
     }
     if ($rollbackMessage) { throw "Initialization failed: $message at $location Rollback failed: $rollbackMessage" }
+    if ($cleanupMessage) { throw "Initialization failed: $message at $location Cleanup failed: $cleanupMessage Staging artifact: $transactionRoot" }
     throw "Initialization failed: $message at $location"
 }
 

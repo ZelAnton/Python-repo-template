@@ -17,6 +17,7 @@ transaction_root=""
 transaction_active=0
 failure_reason=""
 temp_paths=()
+cleanup_failure_injected=0
 
 die() {
   failure_reason="$*"
@@ -25,21 +26,44 @@ die() {
 }
 
 on_exit() {
-  local status=$?
+  local status=$? rollback_status=0 cleanup_status=0 cleanup_message=""
   trap - EXIT ERR
   set +e
-  if [ "$status" -ne 0 ] && [ "$transaction_active" -eq 1 ]; then
-    remove_mutable_tree "$repo_root"
-    copy_mutable_tree "$rollback_root" "$repo_root"
-    if [ $? -ne 0 ]; then
-      failure_reason="${failure_reason:-initialization failed}; rollback failed"
+  if [ "$status" -eq 0 ] && [ "$transaction_active" -eq 1 ]; then
+    if ! cleanup_transaction "$transaction_root"; then
       status=1
+      failure_reason="${failure_reason:-staging cleanup failed}"
     fi
   fi
-  for temp in "${temp_paths[@]}"; do rm -f -- "$temp"; done
-  if [ -n "$transaction_root" ]; then rm -rf -- "$transaction_root"; fi
+  if [ "$status" -ne 0 ] && [ "$transaction_active" -eq 1 ]; then
+    if ! remove_mutable_tree "$repo_root"; then rollback_status=1; fi
+    if ! copy_mutable_tree "$rollback_root" "$repo_root"; then rollback_status=1; fi
+  fi
+  if [ -n "$transaction_root" ]; then
+    if ! cleanup_transaction "$transaction_root"; then
+      cleanup_status=1
+      cleanup_message="staging directory '$transaction_root' could not be removed"
+    fi
+  fi
+  for temp in "${temp_paths[@]}"; do
+    if [ -e "$temp" ] && ! rm -f -- "$temp"; then
+      cleanup_status=1
+      cleanup_message="temporary file '$temp' could not be removed"
+    fi
+  done
+  if [ "$rollback_status" -ne 0 ]; then
+    status=1
+    failure_reason="${failure_reason:-initialization failed}; rollback failed"
+  fi
+  if [ "$cleanup_status" -ne 0 ]; then
+    status=1
+    failure_reason="${failure_reason:-initialization failed}; $cleanup_message"
+  fi
   if [ "$status" -ne 0 ]; then
     printf 'error: initialization failed: %s\n' "${failure_reason:-command failed}" >&2
+    if [ -n "$transaction_root" ]; then
+      printf 'error: staging artifact remains at: %s\n' "$transaction_root" >&2
+    fi
   fi
   exit "$status"
 }
@@ -84,6 +108,53 @@ if [ -z "$author_email" ]; then author_email="$(git config user.email 2>/dev/nul
 [ -n "$description" ] || description="TODO: project description"
 [ -n "$year" ] || year="$(date +%Y)"
 
+if ! printf '%s' "$year" | LC_ALL=C grep -Eq '^[0-9]+$'; then
+  die "invalid --year '$year'. Use a non-negative number."
+fi
+
+# These values are copied into TOML, Markdown, YAML block scalars, and shell
+# source. Reject characters that could change any of those contexts before the
+# first file is touched. Safe values are kept verbatim in every target format.
+assert_safe_metadata() {
+  local label=$1 value=$2 unsafe=0 markdown_unsafe=0 unicode_status
+  if printf '%s' "$value" | grep -Pq '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'; then
+    unsafe=1
+  else
+    unicode_status=$?
+    if [ "$unicode_status" -gt 1 ]; then unsafe=1; fi
+  fi
+  case "$value" in
+    *$'\n'*|*$'\r'*) unsafe=1 ;;
+    *'"'*|*"'"*|*'\'*|*'$'*|*'`'*|*';'*|*'&'*|*'|'*|*'<'*|*'>'*) unsafe=1 ;;
+  esac
+  case "$value" in
+    *'['*|*']'*|*'('*|*')'*|*'#'*|*'*'*|*'_'*|*'~'*)
+      unsafe=1
+      markdown_unsafe=1
+      ;;
+  esac
+  # Description is a standalone README paragraph; reject Markdown block
+  # starters before any template file is changed.
+  if printf '%s' "$value" | grep -Eq '(^[[:blank:]]{4}|^[[:blank:]]{0,3}([-+*][[:blank:]]+.*|[0-9]{1,9}[.)][[:blank:]]+.*|[-+*]|[0-9]{1,9}[.)]|(-[[:blank:]]*){3,}|(_[[:blank:]]*){3,}|(\*[[:blank:]]*){3,})$)'; then
+    unsafe=1
+    markdown_unsafe=1
+  fi
+  if [ "$unsafe" -ne 0 ]; then
+    if [ "$markdown_unsafe" -ne 0 ] && [ "$label" = "--description" ]; then
+      die "invalid $label. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
+    fi
+    die "invalid $label. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+  fi
+}
+
+assert_safe_metadata "--author" "$author"
+assert_safe_metadata "--author-email" "$author_email"
+assert_safe_metadata "--github-owner" "$github_owner"
+assert_safe_metadata "--description" "$description"
+if ! printf '%s' "$github_owner" | LC_ALL=C grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'; then
+  die "invalid --github-owner '$github_owner'. Use a GitHub owner name of 1-39 letters, digits, or internal hyphens."
+fi
+
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 self="$script_dir/$(basename "$0")"
@@ -123,16 +194,52 @@ remove_mutable_tree() {
   while IFS= read -r -d '' item; do
     is_excluded "$item" && continue
     if [ -d "$item" ] && [ ! -L "$item" ]; then
-      # An excluded child may remain; rmdir intentionally leaves that directory intact.
-      rmdir -- "$item" 2>/dev/null || true
+      # An excluded child may remain; preserve that directory, but report any
+      # other removal failure to the transaction owner.
+      if ! rmdir -- "$item" 2>/dev/null; then
+        local mutable_child=0 child
+        while IFS= read -r -d '' child; do
+          if ! is_excluded "$child"; then mutable_child=1; break; fi
+        done < <(find "$item" -mindepth 1 -maxdepth 1 -print0)
+        if [ "$mutable_child" -ne 0 ]; then return 1; fi
+      fi
     else
-      rm -f -- "$item"
+      rm -f -- "$item" || return 1
     fi
   done < <(find "$root" -mindepth 1 -depth -print0)
 }
 
+remove_empty_directory() {
+  local directory="$1"
+  [ -d "$directory" ] || return 0
+  if rmdir -- "$directory" 2>/dev/null; then return 0; fi
+  if find "$directory" -mindepth 1 -print -quit 2>/dev/null | grep -q .; then return 0; fi
+  return 1
+}
+
 inject_failure() {
   if [ "${TEMPLATE_INIT_FAIL_AT:-}" = "$1" ]; then die "Injected failure at '$1'."; fi
+}
+
+cleanup_transaction() {
+  local path="$1"
+  if [ "${TEMPLATE_INIT_FAIL_AT:-}" = "cleanup" ] && [ "$cleanup_failure_injected" -eq 0 ]; then
+    cleanup_failure_injected=1
+    failure_reason="Injected failure at 'cleanup'."
+    return 1
+  fi
+  if [ -n "$path" ] && [ -e "$path" ]; then
+    if ! rm -rf -- "$path"; then
+      failure_reason="staging cleanup failed for '$path'"
+      return 1
+    fi
+  fi
+  if [ -n "$path" ] && [ -e "$path" ]; then
+    failure_reason="staging cleanup did not remove '$path'"
+    return 1
+  fi
+  transaction_root=""
+  transaction_active=0
 }
 
 substitute_tokens() {
@@ -158,7 +265,23 @@ substitute_tokens() {
 assert_writable() {
   local path="$1" operation="$2"
   if [ -e "$path" ] && [ ! -w "$path" ]; then die "preflight cannot $operation '$path': it is not writable."; fi
-  [ -d "$(dirname "$path")" ] || die "preflight cannot $operation '$path': parent directory is missing."
+  local parent="$(dirname "$path")"
+  [ -d "$parent" ] || die "preflight cannot $operation '$path': parent directory '$parent' is missing."
+  if [ ! -w "$parent" ] || [ ! -x "$parent" ]; then
+    die "preflight cannot $operation '$path': parent directory '$parent' is not writable."
+  fi
+  local probe="$parent/.init-preflight-$$-${RANDOM}"
+  if ! (set -C; : > "$probe") 2>/dev/null; then
+    die "preflight cannot $operation '$path': parent directory '$parent' rejected a permission probe."
+  fi
+  if ! rm -f -- "$probe"; then
+    die "preflight cannot $operation '$path': permission probe '$probe' could not be removed."
+  fi
+  if [ -d "$path" ]; then
+    if [ ! -w "$path" ] || [ ! -x "$path" ]; then
+      die "preflight cannot $operation '$path': directory is not writable."
+    fi
+  fi
 }
 
 echo "==> Initializing template as '$project_name' (package '$package_name')"
@@ -168,13 +291,17 @@ declare -A rename_source_set=() rename_target_set=()
 mapfile -d '' all_files < <(find "$repo_root" -type d \( -name .git -o -name .jj -o -name .venv -o -name dist -o -name build -o -name __pycache__ \) -prune -o -type f -print0)
 for file in "${all_files[@]}"; do
   [ "$file" = "$self" ] || [ "$file" = "$sibling_ps1" ] || {
-    if ! content="$(cat -- "$file"; printf '\001')"; then die "preflight cannot read '$file'."; fi
+    if ! content="$(cat -- "$file"; producer_status=$?; if [ "$producer_status" -ne 0 ]; then exit "$producer_status"; fi; printf '\001' || exit "$?")"; then
+      die "preflight cannot read '$file'."
+    fi
     content="${content%$'\001'}"
     case "$file" in
       *.toml) p="$project_t"; a="$author_t"; ae="$author_email_t"; o="$owner_t"; d="$desc_t"; y="$year_t" ;;
       *) p="$project_name"; a="$author"; ae="$author_email"; o="$github_owner"; d="$description"; y="$year" ;;
     esac
-    if ! new="$(TPL_SRC="$content" TPL_PROJECT="$p" TPL_PACKAGE="$package_name" TPL_AUTHOR="$a" TPL_AUTHOR_EMAIL="$ae" TPL_OWNER="$o" TPL_DESC="$d" TPL_YEAR="$y" substitute_tokens; printf '\001')"; then die "preflight could not stage '$file'."; fi
+    if ! new="$(TPL_SRC="$content" TPL_PROJECT="$p" TPL_PACKAGE="$package_name" TPL_AUTHOR="$a" TPL_AUTHOR_EMAIL="$ae" TPL_OWNER="$o" TPL_DESC="$d" TPL_YEAR="$y" substitute_tokens; producer_status=$?; if [ "$producer_status" -ne 0 ]; then exit "$producer_status"; fi; printf '\001' || exit "$?")"; then
+      die "preflight could not stage '$file'."
+    fi
     new="${new%$'\001'}"
     if [ "$new" != "$content" ]; then assert_writable "$file" write; content_paths+=("${file#"$repo_root"/}"); content_values+=("$new"); fi
   }
@@ -200,6 +327,7 @@ for index in "${!rename_sources[@]}"; do
   if [ -e "$target" ] && [ -z "${rename_source_set[$target]+x}" ]; then die "preflight rename conflict: target '$target' already exists."; fi
   [ -d "$(dirname "$target")" ] || die "preflight cannot rename '$source': target directory is missing."
   assert_writable "$source" rename
+  assert_writable "$target" rename
 done
 
 if [ -e "$claude_template" ]; then
@@ -242,7 +370,7 @@ candidate_template="$candidate_root/.claude/settings.json.template"
 if [ -e "$candidate_template" ]; then mv -- "$candidate_template" "$candidate_root/.claude/settings.json"; fi
 inject_failure settings-activation
 for relative in TEMPLATE.md docs/AGENT-INIT-GUIDE.md; do rm -f -- "$candidate_root/$relative"; done
-rmdir -- "$candidate_root/docs" 2>/dev/null || true
+remove_empty_directory "$candidate_root/docs"
 if [ "$keep_script" -eq 0 ]; then rm -f -- "$candidate_root/scripts/init.ps1" "$candidate_root/scripts/init.sh"; fi
 inject_failure template-removal
 
@@ -266,12 +394,13 @@ inject_failure apply-settings-activation
 if [ -e "$claude_template" ]; then mv -- "$claude_template" "$claude_settings"; echo "    Activated .claude/settings.json"; fi
 inject_failure apply-template-removal
 rm -f -- "$repo_root/TEMPLATE.md" "$repo_root/docs/AGENT-INIT-GUIDE.md"
-rmdir -- "$docs_dir" 2>/dev/null || true
+remove_empty_directory "$docs_dir"
 if [ "$keep_script" -eq 0 ]; then rm -f -- "$sibling_ps1" "$self"; fi
 
-transaction_active=0
-rm -rf -- "$transaction_root"
-transaction_root=""
+if ! cleanup_transaction "$transaction_root"; then
+  failure_reason="${failure_reason:-staging cleanup failed}; the transaction will be rolled back"
+  exit 1
+fi
 echo "    Updated contents in ${#content_paths[@]} file(s)."
 echo
 echo "Done. Next steps:"
