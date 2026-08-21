@@ -16,5 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 - Reject unsafe initializer metadata before file mutation so generated release
   workflows cannot be altered through TOML, YAML, Markdown, or shell injection.
+- Make template initialization transactional across staging, renames, settings activation, and cleanup.
+- Restore metadata validation so generated TOML, YAML, Markdown, and shell content
+  cannot be altered through unsafe author, email, owner, or description values.
+- Report rollback and staging-cleanup failures instead of silently leaving artifacts
+  or claiming that initialization succeeded.
 
 [Unreleased]: https://github.com/__GitHubOwner__/__ProjectName__/commits/main

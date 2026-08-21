@@ -47,6 +47,13 @@ conventions for agents in [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md).
    `.template` form, deletes this `TEMPLATE.md` and `docs/AGENT-INIT-GUIDE.md`, and
    (unless `-KeepScript` / `--keep-script`) removes **both** initializers
    (`check-env.{ps1,sh}` stay — they double as a contributor onboarding check).
+   Initialization preflights all inputs, planned writes, renames, removals, and
+   parent-directory permissions before changing the checkout. It builds a staged
+   candidate and rollback snapshot; if a transformation fails, the checkout is
+   restored and staging is cleaned before the command reports failure. A cleanup
+   failure is also reported with the staging path so it cannot look like success.
+   The `TEMPLATE_INIT_FAIL_AT` environment variable is a test-only failure-injection
+   hook for verifying these guarantees; it is not part of normal setup.
 4. Verify:
 
    ```sh
