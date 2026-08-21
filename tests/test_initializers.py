@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+from functools import cache
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ PROJECT_ARGS = [
 ]
 
 
+@cache
 def posix_bash() -> str | None:
     candidates: list[str] = []
     if os.name == "nt":
@@ -61,6 +63,7 @@ def available_initializers() -> list[str]:
     return available
 
 
+@cache
 def wsl_available() -> bool:
     if os.name != "nt":
         return False
