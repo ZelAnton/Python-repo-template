@@ -28,11 +28,35 @@ PROJECT_ARGS = [
 ]
 
 
+def posix_bash() -> str | None:
+    candidates: list[str] = []
+    if os.name == "nt":
+        program_files = os.environ.get("ProgramFiles")
+        if program_files:
+            candidates.append(str(Path(program_files) / "Git" / "bin" / "bash.exe"))
+    bash = shutil.which("bash")
+    if bash:
+        candidates.append(bash)
+    for candidate in candidates:
+        try:
+            probe = subprocess.run(
+                [candidate, "--version"],
+                capture_output=True,
+                check=False,
+                text=True,
+            )
+        except OSError:
+            continue
+        if probe.returncode == 0 and "GNU bash" in (probe.stdout + probe.stderr):
+            return candidate
+    return None
+
+
 def available_initializers() -> list[str]:
     available: list[str] = []
     if shutil.which("pwsh"):
         available.append("powershell")
-    if shutil.which("bash"):
+    if posix_bash():
         available.append("bash")
     return available
 
@@ -110,10 +134,15 @@ def run_initializer(
     else:
         script_path = str(checkout / "scripts" / "init.sh")
         use_wsl = os.name == "nt" and wsl_available()
+        bash = posix_bash()
+        if not use_wsl and bash is None:
+            raise RuntimeError("bash is required to run the POSIX initializer")
         if use_wsl and len(script_path) > 2 and script_path[1] == ":":
             script_path = f"/mnt/{script_path[0].lower()}{script_path[2:].replace(os.sep, '/')}"
+        elif os.name == "nt" and len(script_path) > 2 and script_path[1] == ":":
+            script_path = f"/{script_path[0].lower()}{script_path[2:].replace(os.sep, '/')}"
         command = [
-            "wsl.exe" if use_wsl else "bash",
+            "wsl.exe" if use_wsl else bash,
             *(["env", f"TEMPLATE_INIT_FAIL_AT={failure_at}"] if use_wsl and failure_at else []),
             *(["bash"] if use_wsl else []),
             script_path,
