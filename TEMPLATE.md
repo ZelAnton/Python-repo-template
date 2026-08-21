@@ -91,8 +91,8 @@ conventions for agents in [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md).
 - **Community-health files** — `SECURITY.md`, `CONTRIBUTING.md`,
   `.github/PULL_REQUEST_TEMPLATE.md`, `.github/CODEOWNERS`. Edit to taste; delete
   any you don't want. `CODEOWNERS` ships with its rule commented out.
-- **YAML linting** — `.yamllint.yml` + the CI `yaml-lint` job. Run locally with
-  `uvx yamllint .`. Delete both if unwanted.
+- **YAML linting** — `.yamllint.yml` + the CI `yaml-lint` job. After initialization,
+  if retained, run locally with `uv run --locked yamllint .`. Delete both if unwanted.
 - **CodeQL** — `.github/workflows/codeql.yml`. Delete it if you don't want GitHub's
   static analysis.
 
