@@ -162,6 +162,10 @@ def transaction_artifacts(root: Path) -> list[Path]:
     return [path for path in root.rglob("*") if path.name.startswith(".init-")]
 
 
+@pytest.mark.skipif(
+    os.name == "nt" and not wsl_available(),
+    reason="initializer parity requires a native POSIX shell",
+)
 def test_successful_initializers_have_matching_output(initializer: str, tmp_path: Path) -> None:
     first = tmp_path / "first"
     second = tmp_path / "second"
