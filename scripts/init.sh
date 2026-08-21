@@ -71,17 +71,49 @@ on_exit() {
 trap 'failure_reason="command failed near line $LINENO"' ERR
 trap on_exit EXIT
 
+require_option_value() {
+  local option="$1"
+  [ "$#" -ge 2 ] || die "$option requires a value."
+  case "$2" in
+    -*) die "$option requires a value." ;;
+  esac
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
-    --project-name) project_name="${2:-}"; shift 2 ;;
-    --author) author="${2:-}"; shift 2 ;;
-    --author-email) author_email="${2:-}"; shift 2 ;;
-    --github-owner) github_owner="${2:-}"; shift 2 ;;
-    --description) description="${2:-}"; shift 2 ;;
-    --year) year="${2:-}"; shift 2 ;;
-    --keep-script) keep_script=1; shift ;;
-    -h|--help) sed -n '2,14p' "$0"; exit 0 ;;
-    *) die "unknown argument: $1" ;;
+    --project-name)
+      require_option_value "$@"
+      project_name="$2"
+      shift 2
+      ;;
+    --author)
+      require_option_value "$@"
+      author="$2"
+      shift 2
+      ;;
+    --author-email)
+      require_option_value "$@"
+      author_email="$2"
+      shift 2
+      ;;
+    --github-owner)
+      require_option_value "$@"
+      github_owner="$2"
+      shift 2
+      ;;
+    --description)
+      require_option_value "$@"
+      description="$2"
+      shift 2
+      ;;
+    --year)
+      require_option_value "$@"
+      year="$2"
+      shift 2
+      ;;
+    --keep-script)  keep_script=1; shift ;;
+    -h|--help)      sed -n '2,22p' "$0"; exit 0 ;;
+    *)              die "unknown argument: $1" ;;
   esac
 done
 
