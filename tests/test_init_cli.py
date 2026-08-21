@@ -66,6 +66,21 @@ def run_posix(checkout: Path, *arguments: str) -> subprocess.CompletedProcess[st
     )
 
 
+def test_posix_initializer_avoids_bash_4_and_gnu_only_constructs() -> None:
+    source = (REPO_ROOT / "scripts" / "init.sh").read_text()
+
+    for unsupported in (
+        "declare -a",
+        "declare -A",
+        "mapfile",
+        "grep -P",
+        "-mindepth",
+        "-maxdepth",
+        "-print -quit",
+    ):
+        assert unsupported not in source
+
+
 VALUE_OPTIONS = (
     "--project-name",
     "--author",

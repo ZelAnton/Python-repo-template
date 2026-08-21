@@ -16,7 +16,7 @@ repo_root=""
 transaction_root=""
 transaction_active=0
 failure_reason=""
-temp_paths=()
+temporary_path=""
 cleanup_failure_injected=0
 
 die() {
@@ -45,12 +45,10 @@ on_exit() {
       cleanup_message="staging directory '$transaction_root' could not be removed"
     fi
   fi
-  for temp in "${temp_paths[@]}"; do
-    if [ -e "$temp" ] && ! rm -f -- "$temp"; then
-      cleanup_status=1
-      cleanup_message="temporary file '$temp' could not be removed"
-    fi
-  done
+  if [ -n "$temporary_path" ] && [ -e "$temporary_path" ] && ! rm -f "$temporary_path"; then
+    cleanup_status=1
+    cleanup_message="temporary file '$temporary_path' could not be removed"
+  fi
   if [ "$rollback_status" -ne 0 ]; then
     status=1
     failure_reason="${failure_reason:-initialization failed}; rollback failed"
@@ -154,12 +152,15 @@ fi
 # first file is touched. Safe values are kept verbatim in every target format.
 assert_safe_metadata() {
   local label=$1 value=$2 unsafe=0 markdown_unsafe=0 unicode_status
-  if printf '%s' "$value" | grep -Pq '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'; then
+  if printf '%s' "$value" | has_unsafe_unicode; then
     unsafe=1
   else
     unicode_status=$?
     if [ "$unicode_status" -gt 1 ]; then unsafe=1; fi
   fi
+  case "$value" in
+    *$'\302\205'*|*$'\342\200\250'*|*$'\342\200\251'*) unsafe=1 ;;
+  esac
   case "$value" in
     *$'\n'*|*$'\r'*) unsafe=1 ;;
     *'"'*|*"'"*|*'\'*|*'$'*|*'`'*|*';'*|*'&'*|*'|'*|*'<'*|*'>'*) unsafe=1 ;;
@@ -167,6 +168,10 @@ assert_safe_metadata() {
   if [ "$label" = "--description" ]; then
     case "$value" in
       *'['*|*']'*|*'('*|*')'*|*'#'*|*'*'*|*'_'*|*'~'*)
+        unsafe=1
+        markdown_unsafe=1
+        ;;
+      *$'\t'*)
         unsafe=1
         markdown_unsafe=1
         ;;
@@ -184,6 +189,23 @@ assert_safe_metadata() {
     fi
     die "invalid $label. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
   fi
+}
+
+has_unsafe_unicode() {
+  LC_ALL=C awk '
+    {
+      if ($0 ~ /[\001-\010\013\014\016-\037\177]/ ||
+          $0 ~ /\302[\200-\237]/ ||
+          $0 ~ /\302\255|\330[\200-\205]|\330\234|\331\235|\334\217/ ||
+          $0 ~ /\340\242[\220-\221]|\341\240\216/ ||
+          $0 ~ /\342\200[\213-\217]|\342\200[\252-\256]/ ||
+          $0 ~ /\342\201[\240-\244]|\342\201[\246-\257]/ ||
+          $0 ~ /\357\273\277/) {
+        found=1
+      }
+    }
+    END { exit found ? 0 : 1 }
+  '
 }
 
 assert_safe_metadata "--author" "$author"
@@ -225,41 +247,46 @@ is_excluded() {
 
 copy_mutable_tree() {
   local source_root="$1" destination_root="$2" item relative destination
-  mkdir -p -- "$destination_root"
+  mkdir -p "$destination_root"
   while IFS= read -r -d '' item; do
+    [ "$item" = "$source_root" ] && continue
     is_excluded "$item" && continue
     relative="${item#"$source_root"/}"
     destination="$destination_root/$relative"
-    if [ -d "$item" ] && [ ! -L "$item" ]; then mkdir -p -- "$destination"; else mkdir -p -- "$(dirname "$destination")"; cp -p -- "$item" "$destination"; fi
-  done < <(find "$source_root" -mindepth 1 -print0)
+    if [ -d "$item" ] && [ ! -L "$item" ]; then mkdir -p "$destination"; else mkdir -p "$(dirname "$destination")"; cp -p "$item" "$destination"; fi
+  done < <(find "$source_root" -print0)
 }
 
 remove_mutable_tree() {
   local root="$1" item
   while IFS= read -r -d '' item; do
+    [ "$item" = "$root" ] && continue
     is_excluded "$item" && continue
     if [ -d "$item" ] && [ ! -L "$item" ]; then
       # An excluded child may remain; preserve that directory, but report any
       # other removal failure to the transaction owner.
-      if ! rmdir -- "$item" 2>/dev/null; then
+      if ! rmdir "$item" 2>/dev/null; then
         local mutable_child=0 child
         while IFS= read -r -d '' child; do
+          [ "$child" = "$item" ] && continue
           if ! is_excluded "$child"; then mutable_child=1; break; fi
-        done < <(find "$item" -mindepth 1 -maxdepth 1 -print0)
+        done < <(find "$item" -print0)
         if [ "$mutable_child" -ne 0 ]; then return 1; fi
       fi
     else
-      rm -f -- "$item" || return 1
+      rm -f "$item" || return 1
     fi
-  done < <(find "$root" -mindepth 1 -depth -print0)
+  done < <(find "$root" -depth -print0)
 }
 
 remove_empty_directory() {
-  local directory="$1"
+  local directory="$1" child has_child=0
   [ -d "$directory" ] || return 0
-  if rmdir -- "$directory" 2>/dev/null; then return 0; fi
-  if find "$directory" -mindepth 1 -print -quit 2>/dev/null | grep -q .; then return 0; fi
-  return 1
+  if rmdir "$directory" 2>/dev/null; then return 0; fi
+  for child in "$directory"/* "$directory"/.[!.]* "$directory"/..?*; do
+    if [ -e "$child" ] || [ -L "$child" ]; then has_child=1; break; fi
+  done
+  [ "$has_child" -ne 0 ]
 }
 
 inject_failure() {
@@ -274,7 +301,7 @@ cleanup_transaction() {
     return 1
   fi
   if [ -n "$path" ] && [ -e "$path" ]; then
-    if ! rm -rf -- "$path"; then
+    if ! rm -rf "$path"; then
       failure_reason="staging cleanup failed for '$path'"
       return 1
     fi
@@ -319,7 +346,7 @@ assert_writable() {
   if ! (set -C; : > "$probe") 2>/dev/null; then
     die "preflight cannot $operation '$path': parent directory '$parent' rejected a permission probe."
   fi
-  if ! rm -f -- "$probe"; then
+  if ! rm -f "$probe"; then
     die "preflight cannot $operation '$path': permission probe '$probe' could not be removed."
   fi
   if [ -d "$path" ]; then
@@ -331,12 +358,33 @@ assert_writable() {
 
 echo "==> Initializing template as '$project_name' (package '$package_name')"
 
-declare -a content_paths=() content_values=() rename_sources=() rename_names=()
-declare -A rename_source_set=() rename_target_set=()
-mapfile -d '' all_files < <(find "$repo_root" -type d \( -name .git -o -name .jj -o -name .venv -o -name dist -o -name build -o -name __pycache__ \) -prune -o -type f -print0)
-for file in "${all_files[@]}"; do
+transaction_id="$(date +%s)-$$"
+transaction_root="$(mktemp -d "${TMPDIR:-/tmp}/python-template-init.XXXXXX")"
+candidate_root="$transaction_root/candidate"
+content_root="$transaction_root/content"
+rollback_root="$transaction_root/rollback"
+rename_plan="$transaction_root/rename-plan"
+rename_sources_plan="$transaction_root/rename-sources"
+rename_targets_plan="$transaction_root/rename-targets"
+: > "$rename_plan"
+: > "$rename_sources_plan"
+: > "$rename_targets_plan"
+mkdir -p "$content_root"
+content_count=0
+
+plan_contains() {
+  local plan="$1" needle="$2" entry
+  while IFS= read -r -d '' entry; do
+    [ "$entry" = "$needle" ] && return 0
+  done < "$plan"
+  return 1
+}
+
+# Stage approved content while completing preflight; no checkout file is changed
+# until the candidate and rollback trees have been prepared below.
+while IFS= read -r -d '' file; do
   [ "$file" = "$self" ] || [ "$file" = "$sibling_ps1" ] || {
-    if ! content="$(cat -- "$file"; producer_status=$?; if [ "$producer_status" -ne 0 ]; then exit "$producer_status"; fi; printf '\001' || exit "$?")"; then
+    if ! content="$(cat "$file"; producer_status=$?; if [ "$producer_status" -ne 0 ]; then exit "$producer_status"; fi; printf '\001' || exit "$?")"; then
       die "preflight cannot read '$file'."
     fi
     content="${content%$'\001'}"
@@ -348,9 +396,16 @@ for file in "${all_files[@]}"; do
       die "preflight could not stage '$file'."
     fi
     new="${new%$'\001'}"
-    if [ "$new" != "$content" ]; then assert_writable "$file" write; content_paths+=("${file#"$repo_root"/}"); content_values+=("$new"); fi
+    if [ "$new" != "$content" ]; then
+      assert_writable "$file" write
+      relative="${file#"$repo_root"/}"
+      staged="$content_root/$relative"
+      mkdir -p "$(dirname "$staged")"
+      printf '%s' "$new" > "$staged"
+      content_count=$((content_count + 1))
+    fi
   }
-done
+done < <(find "$repo_root" -type d \( -name .git -o -name .jj -o -name .venv -o -name dist -o -name build -o -name __pycache__ \) -prune -o -type f -print0)
 
 while IFS= read -r -d '' item; do
   is_excluded "$item" && continue
@@ -361,19 +416,20 @@ while IFS= read -r -d '' item; do
   newbase="${newbase//__PackageName__/$package_name}"
   target="$dir/$newbase"
   [ "$target" = "$item" ] && continue
-  if [ -n "${rename_target_set[$target]+x}" ]; then die "preflight rename conflict: multiple items target '$target'."; fi
-  rename_source_set["$item"]=1; rename_target_set["$target"]="$item"
-  rename_sources+=("${item#"$repo_root"/}"); rename_names+=("$newbase")
+  if plan_contains "$rename_targets_plan" "$target"; then die "preflight rename conflict: multiple items target '$target'."; fi
+  printf '%s\0' "$item" >> "$rename_sources_plan"
+  printf '%s\0' "$target" >> "$rename_targets_plan"
+  printf '%s\0%s\0%s\0' "$item" "$newbase" "$target" >> "$rename_plan"
 done < <(find "$repo_root" -depth -print0)
 
-for index in "${!rename_sources[@]}"; do
-  source="$repo_root/${rename_sources[$index]}"
-  target="$(dirname "$source")/${rename_names[$index]}"
-  if [ -e "$target" ] && [ -z "${rename_source_set[$target]+x}" ]; then die "preflight rename conflict: target '$target' already exists."; fi
+while IFS= read -r -d '' source; do
+  IFS= read -r -d '' newbase || die "preflight could not read the rename plan."
+  IFS= read -r -d '' target || die "preflight could not read the rename plan."
+  if [ -e "$target" ] && ! plan_contains "$rename_sources_plan" "$target"; then die "preflight rename conflict: target '$target' already exists."; fi
   [ -d "$(dirname "$target")" ] || die "preflight cannot rename '$source': target directory is missing."
   assert_writable "$source" rename
   assert_writable "$target" rename
-done
+done < "$rename_plan"
 
 if [ -e "$claude_template" ]; then
   [ ! -e "$claude_settings" ] || die "preflight settings conflict: both '$claude_template' and '$claude_settings' exist."
@@ -389,64 +445,63 @@ if [ "$keep_script" -eq 0 ]; then
   assert_writable "$self" remove
 fi
 
-transaction_id="$(date +%s)-$$"
-transaction_root="$(mktemp -d "${TMPDIR:-/tmp}/python-template-init.XXXXXX")"
-candidate_root="$transaction_root/candidate"
-content_root="$transaction_root/content"
-rollback_root="$transaction_root/rollback"
 copy_mutable_tree "$repo_root" "$candidate_root"
 
-for index in "${!content_paths[@]}"; do
-  candidate="$candidate_root/${content_paths[$index]}"
-  mkdir -p -- "$(dirname "$candidate")"
-  printf '%s' "${content_values[$index]}" > "$candidate"
-  staged="$content_root/${content_paths[$index]}"
-  mkdir -p -- "$(dirname "$staged")"
-  cp -p -- "$candidate" "$staged"
-done
+while IFS= read -r -d '' staged; do
+  relative="${staged#"$content_root"/}"
+  candidate="$candidate_root/$relative"
+  mkdir -p "$(dirname "$candidate")"
+  cp -p "$staged" "$candidate"
+done < <(find "$content_root" -type f -print0)
 inject_failure content-write
 
-for index in "${!rename_sources[@]}"; do
-  candidate="$candidate_root/${rename_sources[$index]}"
-  mv -- "$candidate" "$(dirname "$candidate")/${rename_names[$index]}"
-done
+while IFS= read -r -d '' source; do
+  IFS= read -r -d '' newbase || die "preflight could not read the rename plan."
+  IFS= read -r -d '' target || die "preflight could not read the rename plan."
+  relative="${source#"$repo_root"/}"
+  candidate="$candidate_root/$relative"
+  mv "$candidate" "$(dirname "$candidate")/$newbase"
+done < "$rename_plan"
 inject_failure path-rename
 candidate_template="$candidate_root/.claude/settings.json.template"
-if [ -e "$candidate_template" ]; then mv -- "$candidate_template" "$candidate_root/.claude/settings.json"; fi
+if [ -e "$candidate_template" ]; then mv "$candidate_template" "$candidate_root/.claude/settings.json"; fi
 inject_failure settings-activation
-for relative in TEMPLATE.md docs/AGENT-INIT-GUIDE.md; do rm -f -- "$candidate_root/$relative"; done
+for relative in TEMPLATE.md docs/AGENT-INIT-GUIDE.md; do rm -f "$candidate_root/$relative"; done
 remove_empty_directory "$candidate_root/docs"
-if [ "$keep_script" -eq 0 ]; then rm -f -- "$candidate_root/scripts/init.ps1" "$candidate_root/scripts/init.sh"; fi
+if [ "$keep_script" -eq 0 ]; then rm -f "$candidate_root/scripts/init.ps1" "$candidate_root/scripts/init.sh"; fi
 inject_failure template-removal
 
 copy_mutable_tree "$repo_root" "$rollback_root"
 transaction_active=1
 inject_failure apply-content-write
-for index in "${!content_paths[@]}"; do
-  destination="$repo_root/${content_paths[$index]}"
+while IFS= read -r -d '' staged; do
+  relative="${staged#"$content_root"/}"
+  destination="$repo_root/$relative"
   temporary="$(dirname "$destination")/.init-$transaction_id-$(basename "$destination").tmp"
-  temp_paths+=("$temporary")
-  cp -p -- "$content_root/${content_paths[$index]}" "$temporary"
-  mv -f -- "$temporary" "$destination"
-done
+  temporary_path="$temporary"
+  cp -p "$staged" "$temporary"
+  mv -f "$temporary" "$destination"
+  temporary_path=""
+done < <(find "$content_root" -type f -print0)
 inject_failure apply-path-rename
-for index in "${!rename_sources[@]}"; do
-  source="$repo_root/${rename_sources[$index]}"
-  mv -- "$source" "$(dirname "$source")/${rename_names[$index]}"
-  echo "    Renamed $(basename "$source") -> ${rename_names[$index]}"
-done
+while IFS= read -r -d '' source; do
+  IFS= read -r -d '' newbase || die "preflight could not read the rename plan."
+  IFS= read -r -d '' target || die "preflight could not read the rename plan."
+  mv "$source" "$(dirname "$source")/$newbase"
+  echo "    Renamed $(basename "$source") -> $newbase"
+done < "$rename_plan"
 inject_failure apply-settings-activation
-if [ -e "$claude_template" ]; then mv -- "$claude_template" "$claude_settings"; echo "    Activated .claude/settings.json"; fi
+if [ -e "$claude_template" ]; then mv "$claude_template" "$claude_settings"; echo "    Activated .claude/settings.json"; fi
 inject_failure apply-template-removal
-rm -f -- "$repo_root/TEMPLATE.md" "$repo_root/docs/AGENT-INIT-GUIDE.md"
+rm -f "$repo_root/TEMPLATE.md" "$repo_root/docs/AGENT-INIT-GUIDE.md"
 remove_empty_directory "$docs_dir"
-if [ "$keep_script" -eq 0 ]; then rm -f -- "$sibling_ps1" "$self"; fi
+if [ "$keep_script" -eq 0 ]; then rm -f "$sibling_ps1" "$self"; fi
 
 if ! cleanup_transaction "$transaction_root"; then
   failure_reason="${failure_reason:-staging cleanup failed}; the transaction will be rolled back"
   exit 1
 fi
-echo "    Updated contents in ${#content_paths[@]} file(s)."
+echo "    Updated contents in $content_count file(s)."
 echo
 echo "Done. Next steps:"
 echo "  1. uv run pytest"
