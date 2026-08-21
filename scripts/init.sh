@@ -33,35 +33,43 @@ keep_script=0
 
 die() { echo "error: $*" >&2; exit 1; }
 
+require_option_value() {
+  local option="$1"
+  [ "$#" -ge 2 ] || die "$option requires a value."
+  case "$2" in
+    -*) die "$option requires a value." ;;
+  esac
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --project-name)
-      [ "$#" -ge 2 ] || die "--project-name requires a value."
+      require_option_value "$@"
       project_name="$2"
       shift 2
       ;;
     --author)
-      [ "$#" -ge 2 ] || die "--author requires a value."
+      require_option_value "$@"
       author="$2"
       shift 2
       ;;
     --author-email)
-      [ "$#" -ge 2 ] || die "--author-email requires a value."
+      require_option_value "$@"
       author_email="$2"
       shift 2
       ;;
     --github-owner)
-      [ "$#" -ge 2 ] || die "--github-owner requires a value."
+      require_option_value "$@"
       github_owner="$2"
       shift 2
       ;;
     --description)
-      [ "$#" -ge 2 ] || die "--description requires a value."
+      require_option_value "$@"
       description="$2"
       shift 2
       ;;
     --year)
-      [ "$#" -ge 2 ] || die "--year requires a value."
+      require_option_value "$@"
       year="$2"
       shift 2
       ;;

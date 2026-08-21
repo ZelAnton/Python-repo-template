@@ -62,16 +62,20 @@ def run_posix(checkout: Path, *arguments: str) -> subprocess.CompletedProcess[st
     )
 
 
+VALUE_OPTIONS = (
+    "--project-name",
+    "--author",
+    "--author-email",
+    "--github-owner",
+    "--description",
+    "--year",
+)
+OPTION_LIKE_TOKENS = (*VALUE_OPTIONS, "--keep-script", "-h", "--help")
+
+
 @pytest.mark.parametrize(
     "option",
-    [
-        "--project-name",
-        "--author",
-        "--author-email",
-        "--github-owner",
-        "--description",
-        "--year",
-    ],
+    VALUE_OPTIONS,
 )
 def test_posix_rejects_terminal_missing_values_before_mutation(tmp_path: Path, option: str) -> None:
     checkout = copy_template(tmp_path)
@@ -82,6 +86,30 @@ def test_posix_rejects_terminal_missing_values_before_mutation(tmp_path: Path, o
     assert result.returncode != 0
     assert option in result.stderr
     assert "requires a value" in result.stderr
+    assert checkout_snapshot(checkout) == before
+
+
+@pytest.mark.parametrize(
+    ("option", "following_option"),
+    [
+        (option, following_option)
+        for option in VALUE_OPTIONS
+        for following_option in OPTION_LIKE_TOKENS
+    ],
+)
+def test_posix_rejects_option_like_values_before_mutation(
+    tmp_path: Path, option: str, following_option: str
+) -> None:
+    checkout = copy_template(tmp_path)
+    before = checkout_snapshot(checkout)
+    arguments = [option, following_option]
+    if option != "--project-name":
+        arguments = ["--project-name", "acme-widgets", *arguments]
+
+    result = run_posix(checkout, *arguments)
+
+    assert result.returncode != 0
+    assert f"{option} requires a value." in result.stderr
     assert checkout_snapshot(checkout) == before
 
 
