@@ -89,6 +89,43 @@ if (-not $AuthorEmail) {
 }
 if (-not $GitHubOwner) { $GitHubOwner = 'your-org' }
 if (-not $Description) { $Description = 'TODO: project description' }
+if ($Year -lt 0) {
+    throw "Invalid -Year '$Year'. Use a non-negative number."
+}
+
+# These values are copied into TOML, Markdown, YAML block scalars, and shell
+# source. Reject characters that could change any of those contexts before the
+# first file is touched. Safe values are kept verbatim in every target format.
+$unsafeMetadataChars = [char[]]@('"', "'", '\', '$', '`', ';', '&', '|', '<', '>')
+$unsafeUnicodePattern = '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'
+$markdownUnsafeChars = [char[]]@('[', ']', '(', ')', '#', '*', '_', '~')
+# Description is a standalone README paragraph; reject Markdown block starters
+# before any template file is changed.
+$markdownBlockPattern = '(^[\t ]{4}|^[\t ]{0,3}(?:[-+*][\t ]+.*|[0-9]{1,9}[.)][\t ]+.*|[-+*]|[0-9]{1,9}[.)]|(?:-[\t ]*){3,}|(?:_[\t ]*){3,}|(?:\*[\t ]*){3,})$)'
+function Assert-SafeMetadata {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ParameterName,
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [switch]$RejectMarkdownSyntax
+    )
+
+    if ($Value -match $unsafeUnicodePattern -or $Value.IndexOfAny($unsafeMetadataChars) -ge 0) {
+        throw "Invalid $ParameterName. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+    }
+    if ($RejectMarkdownSyntax -and ($Value.IndexOfAny($markdownUnsafeChars) -ge 0 -or $Value -match $markdownBlockPattern)) {
+        throw "Invalid $ParameterName. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
+    }
+}
+
+Assert-SafeMetadata '-Author' $Author
+Assert-SafeMetadata '-AuthorEmail' $AuthorEmail
+Assert-SafeMetadata '-GitHubOwner' $GitHubOwner
+Assert-SafeMetadata '-Description' $Description -RejectMarkdownSyntax
+if ($GitHubOwner -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$') {
+    throw "Invalid -GitHubOwner '$GitHubOwner'. Use a GitHub owner name of 1-39 letters, digits, or internal hyphens."
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $selfPath = $PSCommandPath
@@ -103,9 +140,8 @@ $replacements = [ordered]@{
     '__Year__'        = "$Year"
 }
 
-# Values written into TOML files (pyproject.toml) sit inside double-quoted strings
-# — a literal " or \ in an author/description would break the manifest, so escape
-# them for .toml targets. The derived package name is [a-z0-9_] only, so it is safe.
+# Keep TOML escaping defensive even though the metadata preflight above rejects
+# quotes and backslashes. The derived package name is [a-z0-9_] only, so it is safe.
 $tomlReplacements = [ordered]@{}
 foreach ($key in $replacements.Keys) {
     $tomlReplacements[$key] = $replacements[$key].Replace('\', '\\').Replace('"', '\"')

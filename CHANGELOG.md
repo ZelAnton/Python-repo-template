@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -
 
 ### Fixed
--
+- Reject unsafe initializer metadata before file mutation so generated release
+  workflows cannot be altered through TOML, YAML, Markdown, or shell injection.
 
 [Unreleased]: https://github.com/__GitHubOwner__/__ProjectName__/commits/main
