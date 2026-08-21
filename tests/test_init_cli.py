@@ -9,8 +9,9 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+TEMPLATE_PACKAGE = REPO_ROOT / "src" / "__PackageName__"
 pytestmark = pytest.mark.skipif(
-    not (REPO_ROOT / "TEMPLATE.md").is_file() or not (REPO_ROOT / "src/__PackageName__").is_dir(),
+    not (REPO_ROOT / "TEMPLATE.md").is_file() or not TEMPLATE_PACKAGE.is_dir(),
     reason="initializer tests require the uninitialized template",
 )
 _COPY_IGNORE = shutil.ignore_patterns(
@@ -20,6 +21,9 @@ _COPY_IGNORE = shutil.ignore_patterns(
     "dist",
     "build",
     "__pycache__",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".ruff_cache",
 )
 
 
@@ -123,7 +127,7 @@ def test_posix_accepts_all_values_and_keeps_scripts(tmp_path: Path) -> None:
         "--author",
         "Jane Doe",
         "--author-email",
-        "jane@example.com",
+        "alice_smith@example.com",
         "--github-owner",
         "acme",
         "--description",
@@ -138,12 +142,12 @@ def test_posix_accepts_all_values_and_keeps_scripts(tmp_path: Path) -> None:
     assert 'name = "acme-widgets"' in (checkout / "pyproject.toml").read_text()
     assert 'description = "Widget toolkit"' in (checkout / "pyproject.toml").read_text()
     assert 'name = "Jane Doe"' in (checkout / "pyproject.toml").read_text()
-    assert 'email = "jane@example.com"' in (checkout / "pyproject.toml").read_text()
+    assert 'email = "alice_smith@example.com"' in (checkout / "pyproject.toml").read_text()
     assert "Widget toolkit" in (checkout / "README.md").read_text()
     assert "github.com/acme/acme-widgets" in (checkout / "CHANGELOG.md").read_text()
     release_workflow = (checkout / ".github/workflows/release.yml").read_text()
     assert 'git config user.name "Jane Doe"' in release_workflow
-    assert 'git config user.email "jane@example.com"' in release_workflow
+    assert 'git config user.email "alice_smith@example.com"' in release_workflow
     assert "Copyright (c) 2026 Jane Doe" in (checkout / "LICENSE").read_text()
     assert (checkout / "scripts/init.sh").is_file()
     assert (checkout / "scripts/init.ps1").is_file()

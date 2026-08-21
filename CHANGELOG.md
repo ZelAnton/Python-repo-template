@@ -22,5 +22,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report rollback and staging-cleanup failures instead of silently leaving artifacts
   or claiming that initialization succeeded.
 - POSIX initializer options now reject missing values, including following option tokens, before changing the checkout.
+- Accept safe metadata such as underscored email addresses consistently in POSIX and PowerShell initializers while retaining unsafe-input rejection.
 
 [Unreleased]: https://github.com/__GitHubOwner__/__ProjectName__/commits/main

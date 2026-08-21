@@ -105,13 +105,13 @@ conventions for agents in [CLAUDE.md](CLAUDE.md) / [AGENTS.md](AGENTS.md).
 
 ## Template self-test in CI
 
-Each uv-based CI job starts with an *Initialize template placeholders* step.
-In this template repo it stamps the throwaway runner checkout with a dummy
-project name (the placeholder `__ProjectName__` is not a valid Python
-distribution name, so `uv` could not even parse `pyproject.toml`), which also
-end-to-end-tests the init script on every push. In a repo created from the
-template the step is a guaranteed no-op (it requires `TEMPLATE.md` *and*
-`scripts/init.sh`, both deleted by init) — keep it or delete it, either is fine.
+Each uv-based CI job creates a disposable copy of the checked-out template,
+initializes that copy with a dummy project name, and runs its tooling there. The
+placeholder `__ProjectName__` is not a valid Python distribution name, so `uv`
+cannot parse the template's original `pyproject.toml`. The test job keeps the
+source checkout intact for initializer-specific tests, then runs the complete
+suite in the generated copy; this preserves the intended cleanup that removes
+both initializer scripts from a normal initialized repository.
 
 ## Security hardening (on by default)
 

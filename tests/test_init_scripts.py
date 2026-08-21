@@ -10,10 +10,16 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).parents[1]
+pytestmark = pytest.mark.skipif(
+    not (REPO_ROOT / "TEMPLATE.md").is_file()
+    or not (REPO_ROOT / "scripts" / "init.sh").is_file()
+    or not (REPO_ROOT / "scripts" / "init.ps1").is_file(),
+    reason="initializer tests require the uninitialized template",
+)
 SAFE_VALUES = {
     "project_name": "acme-widgets",
     "author": "Jane Doe",
-    "author_email": "jane@example.com",
+    "author_email": "alice_smith@example.com",
     "github_owner": "acme",
     "description": "Widget toolkit: fast, safe!",
     "year": "2026",
@@ -56,7 +62,17 @@ def _copy_template(tmp_path: Path) -> Path:
     shutil.copytree(
         REPO_ROOT,
         target,
-        ignore=shutil.ignore_patterns(".git", ".jj", ".venv", "build", "dist", "__pycache__"),
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".jj",
+            ".venv",
+            "build",
+            "dist",
+            "__pycache__",
+            ".pytest_cache",
+            ".mypy_cache",
+            ".ruff_cache",
+        ),
     )
     return target
 
@@ -66,6 +82,8 @@ def _run_initializer(
     kind: str,
     executable: str,
     values: dict[str, str],
+    *,
+    keep_script: bool = True,
 ) -> subprocess.CompletedProcess[str]:
     if kind == "sh":
         command = [
@@ -74,9 +92,11 @@ def _run_initializer(
             'exec scripts/init.sh --project-name "$T001_PROJECT_NAME" '
             '--author "$T001_AUTHOR" --author-email "$T001_AUTHOR_EMAIL" '
             '--github-owner "$T001_GITHUB_OWNER" --description "$T001_DESCRIPTION" '
-            '--year "$T001_YEAR" --keep-script',
+            '--year "$T001_YEAR"',
             "init.sh",
         ]
+        if keep_script:
+            command[2] += " --keep-script"
         environment = os.environ.copy()
         environment.update(
             {
@@ -106,8 +126,9 @@ def _run_initializer(
             values["description"],
             "-Year",
             values["year"],
-            "-KeepScript",
         ]
+        if keep_script:
+            command.append("-KeepScript")
         environment = None
     return subprocess.run(
         command, cwd=root, capture_output=True, text=True, check=False, env=environment
@@ -139,15 +160,51 @@ def test_safe_metadata_is_written_and_release_shell_stays_literal(
     metadata = tomllib.loads(pyproject)["project"]
     assert metadata["name"] == "acme-widgets"
     assert metadata["description"] == "Widget toolkit: fast, safe!"
-    assert metadata["authors"] == [{"name": "Jane Doe", "email": "jane@example.com"}]
+    assert metadata["authors"] == [{"name": "Jane Doe", "email": "alice_smith@example.com"}]
     assert 'name = "acme-widgets"' in pyproject
     assert 'description = "Widget toolkit: fast, safe!"' in pyproject
-    assert 'name = "Jane Doe", email = "jane@example.com"' in pyproject
+    assert 'name = "Jane Doe", email = "alice_smith@example.com"' in pyproject
     release = (root / ".github" / "workflows" / "release.yml").read_text()
     assert 'git config user.name "Jane Doe"' in release
-    assert 'git config user.email "jane@example.com"' in release
+    assert 'git config user.email "alice_smith@example.com"' in release
     assert "__Author__" not in release
     assert "__AuthorEmail__" not in release
+
+
+def test_safe_email_with_underscore_is_accepted_by_both_initializers(
+    tmp_path: Path,
+) -> None:
+    bash = _bash_executable()
+    pwsh = _pwsh_executable()
+    posix_root = _copy_template(tmp_path / "posix")
+    powershell_root = _copy_template(tmp_path / "powershell")
+
+    posix_result = _run_initializer(posix_root, "sh", bash, SAFE_VALUES)
+    powershell_result = _run_initializer(powershell_root, "ps1", pwsh, SAFE_VALUES)
+
+    assert posix_result.returncode == 0, posix_result.stdout + posix_result.stderr
+    assert powershell_result.returncode == 0, powershell_result.stdout + powershell_result.stderr
+    assert _snapshot(posix_root) == _snapshot(powershell_root)
+
+
+@pytest.mark.skipif(shutil.which("uv") is None, reason="uv is required for the generated-copy test")
+def test_generated_copy_runs_tests_after_initializer_cleanup(tmp_path: Path) -> None:
+    root = _copy_template(tmp_path)
+    result = _run_initializer(root, "sh", _bash_executable(), SAFE_VALUES, keep_script=False)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (root / "scripts" / "init.sh").exists()
+    assert not (root / "scripts" / "init.ps1").exists()
+
+    generated_tests = subprocess.run(
+        ["uv", "--directory", str(root), "run", "--locked", "pytest"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert generated_tests.returncode == 0, generated_tests.stdout + generated_tests.stderr
 
 
 @pytest.mark.parametrize(

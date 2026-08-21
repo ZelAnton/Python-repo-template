@@ -8,12 +8,16 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).parents[1]
+pytestmark = pytest.mark.skipif(
+    not (ROOT / "TEMPLATE.md").is_file() or not (ROOT / "src" / "__PackageName__").is_dir(),
+    reason="initializer tests require the uninitialized template",
+)
 PROJECT_ARGS = [
     "acme-widgets",
     "--author",
     "Jane Doe",
     "--author-email",
-    "jane@example.com",
+    "alice_smith@example.com",
     "--github-owner",
     "acme",
     "--description",
@@ -40,7 +44,7 @@ def initializer(request: pytest.FixtureRequest) -> str:
 def copy_template(destination: Path) -> None:
     destination.mkdir()
     for source in ROOT.iterdir():
-        if source.name in {".git", ".pytest_cache", ".ruff_cache"}:
+        if source.name in {".git", ".pytest_cache", ".mypy_cache", ".ruff_cache"}:
             continue
         target = destination / source.name
         if source.is_dir():

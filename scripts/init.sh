@@ -164,17 +164,19 @@ assert_safe_metadata() {
     *$'\n'*|*$'\r'*) unsafe=1 ;;
     *'"'*|*"'"*|*'\'*|*'$'*|*'`'*|*';'*|*'&'*|*'|'*|*'<'*|*'>'*) unsafe=1 ;;
   esac
-  case "$value" in
-    *'['*|*']'*|*'('*|*')'*|*'#'*|*'*'*|*'_'*|*'~'*)
+  if [ "$label" = "--description" ]; then
+    case "$value" in
+      *'['*|*']'*|*'('*|*')'*|*'#'*|*'*'*|*'_'*|*'~'*)
+        unsafe=1
+        markdown_unsafe=1
+        ;;
+    esac
+    # Description is a standalone README paragraph; reject Markdown block
+    # starters before any template file is changed.
+    if printf '%s' "$value" | grep -Eq '(^[[:blank:]]{4}|^[[:blank:]]{0,3}([-+*][[:blank:]]+.*|[0-9]{1,9}[.)][[:blank:]]+.*|[-+*]|[0-9]{1,9}[.)]|(-[[:blank:]]*){3,}|(_[[:blank:]]*){3,}|(\*[[:blank:]]*){3,})$)'; then
       unsafe=1
       markdown_unsafe=1
-      ;;
-  esac
-  # Description is a standalone README paragraph; reject Markdown block
-  # starters before any template file is changed.
-  if printf '%s' "$value" | grep -Eq '(^[[:blank:]]{4}|^[[:blank:]]{0,3}([-+*][[:blank:]]+.*|[0-9]{1,9}[.)][[:blank:]]+.*|[-+*]|[0-9]{1,9}[.)]|(-[[:blank:]]*){3,}|(_[[:blank:]]*){3,}|(\*[[:blank:]]*){3,})$)'; then
-    unsafe=1
-    markdown_unsafe=1
+    fi
   fi
   if [ "$unsafe" -ne 0 ]; then
     if [ "$markdown_unsafe" -ne 0 ] && [ "$label" = "--description" ]; then
