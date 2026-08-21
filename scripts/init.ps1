@@ -4,49 +4,9 @@
     Initializes this template into a concrete Python project.
 
 .DESCRIPTION
-    POSIX counterpart: scripts/init.sh — use whichever matches your shell.
-
-    Replaces the placeholder tokens in file contents AND in file/folder names,
-    then removes the template-only files (TEMPLATE.md, docs/AGENT-INIT-GUIDE.md,
-    and — unless -KeepScript — both initializers, init.ps1 and init.sh).
-
-    Two name tokens are stamped:
-      __ProjectName__  the PyPI distribution / repo name, used verbatim (e.g.
-                       "acme-widgets"). Goes into pyproject `name`, URLs, LICENSE.
-      __PackageName__  the importable package, DERIVED from the project name
-                       (lowercased, runs of non-alphanumerics -> '_', leading '_'
-                       added if it would start with a digit) — e.g. "Acme.Widgets"
-                       -> "acme_widgets". Names the src/ package dir and imports.
-
-    Run it once, right after creating a repository from the template:
-
-        pwsh ./scripts/init.ps1 -ProjectName acme-widgets
-
-.PARAMETER ProjectName
-    PyPI distribution / repo name. Required. Used verbatim for the distribution
-    name and URLs; the importable package name is derived from it.
-
-.PARAMETER Author
-    Author for LICENSE and package metadata. Defaults to `git config user.name`, else "Your Name".
-
-.PARAMETER AuthorEmail
-    Author email for package metadata and the release commit. Defaults to `git config user.email`, else "you@example.com".
-
-.PARAMETER GitHubOwner
-    GitHub owner/org used in repository URLs. Defaults to "your-org".
-
-.PARAMETER Description
-    Short package description. Defaults to "TODO: project description".
-
-.PARAMETER Year
-    Copyright year. Defaults to the current year.
-
-.PARAMETER KeepScript
-    Keep both initializers (init.ps1 and init.sh) after running. TEMPLATE.md and
-    docs/AGENT-INIT-GUIDE.md are removed either way.
-
-.EXAMPLE
-    pwsh ./scripts/init.ps1 -ProjectName acme-widgets -Author "Jane Doe" -GitHubOwner acme -Description "Widget toolkit"
+    POSIX counterpart: scripts/init.sh. Replaces template tokens in file
+    contents and names, activates shared settings, and removes template-only
+    files. The complete transformation is staged before the checkout changes.
 #>
 [CmdletBinding()]
 param(
@@ -62,21 +22,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# Validate as a PEP 503 distribution name: ASCII letters, digits, '.', '-', '_',
-# starting and ending with an alphanumeric. PyPI normalizes case and separators,
-# but an out-of-set character (space, '/', '!', ...) would produce an invalid
-# pyproject `name` that won't build — reject it here with a clear message.
 if ($ProjectName -notmatch '^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$') {
     throw "Invalid -ProjectName '$ProjectName'. Use ASCII letters, digits, '.', '-', '_'; it must start and end with a letter or digit (e.g. acme-widgets)."
 }
 
-# Derive the importable package name: lowercase, collapse runs of non-alphanumerics
-# to '_', trim leading/trailing '_'.
 $packageName = ($ProjectName.ToLowerInvariant() -replace '[^a-z0-9]+', '_').Trim('_')
 if (-not $packageName) {
-    throw "Invalid -ProjectName '$ProjectName'. It must contain at least one ASCII letter or digit so a Python package name can be derived (e.g. acme-widgets)."
+    throw "Invalid -ProjectName '$ProjectName'. It must contain at least one ASCII letter or digit so a Python package name can be derived."
 }
-# A Python identifier cannot start with a digit; prefix '_' so the package stays importable.
 if ($packageName -match '^[0-9]') { $packageName = "_$packageName" }
 
 if (-not $Author) {
@@ -92,7 +45,7 @@ if (-not $Description) { $Description = 'TODO: project description' }
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $selfPath = $PSCommandPath
-
+$siblingSh = Join-Path $PSScriptRoot 'init.sh'
 $replacements = [ordered]@{
     '__ProjectName__' = $ProjectName
     '__PackageName__' = $packageName
@@ -102,82 +55,247 @@ $replacements = [ordered]@{
     '__Description__' = $Description
     '__Year__'        = "$Year"
 }
-
-# Values written into TOML files (pyproject.toml) sit inside double-quoted strings
-# — a literal " or \ in an author/description would break the manifest, so escape
-# them for .toml targets. The derived package name is [a-z0-9_] only, so it is safe.
 $tomlReplacements = [ordered]@{}
 foreach ($key in $replacements.Keys) {
     $tomlReplacements[$key] = $replacements[$key].Replace('\', '\\').Replace('"', '\"')
 }
 $tomlFileExtensions = @('.toml')
-
 $excludedDirs = @('.git', '.jj', '.venv', 'dist', 'build', '__pycache__')
 
 function Test-Excluded([string]$fullPath) {
-    $rel = $fullPath.Substring($repoRoot.Length).TrimStart('\', '/')
-    foreach ($seg in ($rel -split '[\\/]')) {
-        if ($excludedDirs -contains $seg) { return $true }
+    foreach ($segment in ($fullPath -split '[\\/]')) {
+        if ($excludedDirs -contains $segment) { return $true }
     }
     return $false
 }
 
+function Get-PathKey([string]$path) {
+    return [System.IO.Path]::GetFullPath($path).ToLowerInvariant()
+}
+
+function Assert-WritablePath([string]$path, [string]$operation) {
+    if (Test-Path -LiteralPath $path) {
+        $item = Get-Item -LiteralPath $path -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReadOnly) -ne 0) {
+            throw "Preflight cannot $operation '$path': it is read-only."
+        }
+    }
+    $parent = Split-Path -Path $path -Parent
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        throw "Preflight cannot $operation '$path': parent directory '$parent' is missing."
+    }
+}
+
+function Copy-MutableTree([string]$sourceRoot, [string]$destinationRoot) {
+    New-Item -ItemType Directory -Path $destinationRoot -Force | Out-Null
+    foreach ($item in (Get-ChildItem -LiteralPath $sourceRoot -Force)) {
+        if ($item.Name -eq '.git' -or (Test-Excluded $item.FullName)) { continue }
+        $destination = Join-Path $destinationRoot $item.Name
+        if ($item.PSIsContainer) {
+            Copy-MutableTree $item.FullName $destination
+        } else {
+            Copy-Item -LiteralPath $item.FullName -Destination $destination -Force
+        }
+    }
+}
+
+function Remove-MutableTree([string]$root) {
+    foreach ($item in (Get-ChildItem -LiteralPath $root -Force)) {
+        if ($item.Name -eq '.git' -or (Test-Excluded $item.FullName)) { continue }
+        if ($item.PSIsContainer) {
+            Remove-MutableTree $item.FullName
+            if (-not (Get-ChildItem -LiteralPath $item.FullName -Force)) {
+                Remove-Item -LiteralPath $item.FullName -Force
+            }
+        } else {
+            Remove-Item -LiteralPath $item.FullName -Force
+        }
+    }
+}
+
+function Invoke-FailureInjection([string]$boundary) {
+    if ($env:TEMPLATE_INIT_FAIL_AT -eq $boundary) {
+        throw "Injected failure at '$boundary'."
+    }
+}
+
+function Write-StagedFileAtomically([string]$source, [string]$destination, [string]$transactionId) {
+    $parent = Split-Path -Path $destination -Parent
+    $temporary = Join-Path $parent ".init-$transactionId-$([System.IO.Path]::GetRandomFileName())"
+    Copy-Item -LiteralPath $source -Destination $temporary -Force
+    Move-Item -LiteralPath $temporary -Destination $destination -Force
+}
+
+$claudeTemplate = Join-Path $repoRoot '.claude/settings.json.template'
+$claudeSettings = Join-Path $repoRoot '.claude/settings.json'
+$templateOnly = @('TEMPLATE.md', 'docs/AGENT-INIT-GUIDE.md')
+$docsDir = Join-Path $repoRoot 'docs'
+$renamePlans = [System.Collections.Generic.List[object]]::new()
+$contentPlans = [System.Collections.Generic.List[object]]::new()
+$transactionRoot = $null
+$transactionStarted = $false
+
 Write-Host "==> Initializing template as '$ProjectName' (package '$packageName')" -ForegroundColor Cyan
 
-# 1) Replace tokens in file contents. Both initializers are skipped: they carry
-#    the literal token strings as search keys, so substituting inside them would
-#    corrupt the sibling script.
-$siblingSh = Join-Path $PSScriptRoot 'init.sh'
-$files = Get-ChildItem -Path $repoRoot -File -Recurse | Where-Object {
-    -not (Test-Excluded $_.FullName) -and $_.FullName -ne $selfPath -and $_.FullName -ne $siblingSh
-}
-$contentChanged = 0
-foreach ($file in $files) {
-    $text = [System.IO.File]::ReadAllText($file.FullName)
-    $new = $text
-    $map = if ($tomlFileExtensions -contains $file.Extension) { $tomlReplacements } else { $replacements }
-    foreach ($key in $map.Keys) {
-        $new = $new.Replace($key, $map[$key])
+try {
+    # Read and validate every input before creating staging or changing the checkout.
+    $files = Get-ChildItem -Path $repoRoot -File -Recurse -Force | Where-Object {
+        -not (Test-Excluded $_.FullName) -and $_.FullName -ne $selfPath -and $_.FullName -ne $siblingSh
     }
-    if ($new -ne $text) {
-        # UTF-8 without BOM, LF preserved — matches .gitattributes (eol=lf).
-        [System.IO.File]::WriteAllText($file.FullName, $new, (New-Object System.Text.UTF8Encoding($false)))
-        $contentChanged++
+    foreach ($file in $files) {
+        try { $text = [System.IO.File]::ReadAllText($file.FullName) }
+        catch { throw "Preflight cannot read '$($file.FullName)': $($_.Exception.Message)" }
+        $new = $text
+        $map = if ($tomlFileExtensions -contains $file.Extension) { $tomlReplacements } else { $replacements }
+        foreach ($key in $map.Keys) { $new = $new.Replace($key, $map[$key]) }
+        if ($new -ne $text) {
+            Assert-WritablePath $file.FullName 'write'
+            $contentPlans.Add([pscustomobject]@{
+                    RelativePath = $file.FullName.Substring($repoRoot.Length).TrimStart('\', '/')
+                    Content      = $new
+                })
+        }
     }
-}
-Write-Host "    Updated contents in $contentChanged file(s)." -ForegroundColor DarkGray
 
-# 2) Rename files and folders whose name contains a name token. Deepest paths
-#    first so child renames don't invalidate parent paths. The src package dir
-#    (src/__PackageName__) is the main case.
-$named = Get-ChildItem -Path $repoRoot -Recurse | Where-Object {
-    -not (Test-Excluded $_.FullName) -and ($_.Name -like '*__ProjectName__*' -or $_.Name -like '*__PackageName__*')
-} | Sort-Object { $_.FullName.Length } -Descending
-foreach ($item in $named) {
-    $newName = $item.Name.Replace('__ProjectName__', $ProjectName).Replace('__PackageName__', $packageName)
-    Rename-Item -LiteralPath $item.FullName -NewName $newName
-    Write-Host "    Renamed $($item.Name) -> $newName" -ForegroundColor DarkGray
+    $named = Get-ChildItem -Path $repoRoot -Recurse -Force | Where-Object {
+        -not (Test-Excluded $_.FullName) -and ($_.Name -like '*__ProjectName__*' -or $_.Name -like '*__PackageName__*')
+    } | Sort-Object { $_.FullName.Length } -Descending
+    $renameSources = @{}
+    $renameTargets = @{}
+    foreach ($item in $named) {
+        $newName = $item.Name.Replace('__ProjectName__', $ProjectName).Replace('__PackageName__', $packageName)
+        $target = Join-Path (Split-Path -Path $item.FullName -Parent) $newName
+        $sourceKey = Get-PathKey $item.FullName
+        $targetKey = Get-PathKey $target
+        if ($targetKey -eq $sourceKey) { continue }
+        if ($renameTargets.ContainsKey($targetKey)) {
+            throw "Preflight rename conflict: '$($item.FullName)' and '$($renameTargets[$targetKey])' both target '$target'."
+        }
+        $renameSources[$sourceKey] = $true
+        $renameTargets[$targetKey] = $item.FullName
+        $renamePlans.Add([pscustomobject]@{ Source = $item.FullName; NewName = $newName; Target = $target; OldName = $item.Name })
+    }
+    foreach ($plan in $renamePlans) {
+        $targetKey = Get-PathKey $plan.Target
+        if ((Test-Path -LiteralPath $plan.Target) -and -not $renameSources.ContainsKey($targetKey)) {
+            throw "Preflight rename conflict: target '$($plan.Target)' already exists."
+        }
+        if (-not (Test-Path -LiteralPath (Split-Path -Path $plan.Target -Parent) -PathType Container)) {
+            throw "Preflight cannot rename '$($plan.Source)': target directory is missing."
+        }
+        Assert-WritablePath $plan.Source 'rename'
+    }
+
+    if (Test-Path -LiteralPath $claudeTemplate) {
+        if (Test-Path -LiteralPath $claudeSettings) {
+            throw "Preflight settings conflict: both '$claudeTemplate' and '$claudeSettings' exist."
+        }
+        Assert-WritablePath $claudeTemplate 'activate settings'
+        Assert-WritablePath $claudeSettings 'activate settings'
+    }
+    foreach ($relativePath in $templateOnly) {
+        $path = Join-Path $repoRoot $relativePath
+        if (Test-Path -LiteralPath $path) { Assert-WritablePath $path 'remove' }
+    }
+    if (Test-Path -LiteralPath $docsDir) { Assert-WritablePath $docsDir 'remove' }
+    if (-not $KeepScript) {
+        if (Test-Path -LiteralPath $siblingSh) { Assert-WritablePath $siblingSh 'remove' }
+        Assert-WritablePath $selfPath 'remove'
+    }
+
+    $transactionId = [guid]::NewGuid().ToString('N')
+    $transactionRoot = Join-Path ([System.IO.Path]::GetTempPath()) "python-template-init-$transactionId"
+    $candidateRoot = Join-Path $transactionRoot 'candidate'
+    $contentRoot = Join-Path $transactionRoot 'content'
+    $rollbackRoot = Join-Path $transactionRoot 'rollback'
+    New-Item -ItemType Directory -Path $transactionRoot -Force | Out-Null
+    Copy-MutableTree $repoRoot $candidateRoot
+
+    foreach ($plan in $contentPlans) {
+        $candidatePath = Join-Path $candidateRoot $plan.RelativePath
+        New-Item -ItemType Directory -Path (Split-Path -Path $candidatePath -Parent) -Force | Out-Null
+        [System.IO.File]::WriteAllText($candidatePath, $plan.Content, (New-Object System.Text.UTF8Encoding($false)))
+        $contentPath = Join-Path $contentRoot $plan.RelativePath
+        New-Item -ItemType Directory -Path (Split-Path -Path $contentPath -Parent) -Force | Out-Null
+        Copy-Item -LiteralPath $candidatePath -Destination $contentPath -Force
+    }
+    Invoke-FailureInjection 'content-write'
+
+    foreach ($plan in $renamePlans) {
+        $candidatePath = Join-Path $candidateRoot ($plan.Source.Substring($repoRoot.Length).TrimStart('\', '/'))
+        Rename-Item -LiteralPath $candidatePath -NewName $plan.NewName
+    }
+    Invoke-FailureInjection 'path-rename'
+    $candidateSettingsTemplate = Join-Path $candidateRoot '.claude/settings.json.template'
+    if (Test-Path -LiteralPath $candidateSettingsTemplate) {
+        Move-Item -LiteralPath $candidateSettingsTemplate -Destination (Join-Path $candidateRoot '.claude/settings.json')
+    }
+    Invoke-FailureInjection 'settings-activation'
+    foreach ($relativePath in $templateOnly) {
+        $path = Join-Path $candidateRoot $relativePath
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+    }
+    $candidateDocs = Join-Path $candidateRoot 'docs'
+    if ((Test-Path -LiteralPath $candidateDocs) -and -not (Get-ChildItem -LiteralPath $candidateDocs -Force)) {
+        Remove-Item -LiteralPath $candidateDocs -Force
+    }
+    if (-not $KeepScript) {
+        Remove-Item -LiteralPath (Join-Path $candidateRoot 'scripts/init.ps1') -Force
+        Remove-Item -LiteralPath (Join-Path $candidateRoot 'scripts/init.sh') -Force
+    }
+    Invoke-FailureInjection 'template-removal'
+
+    # Snapshot immediately before the first checkout write.
+    Copy-MutableTree $repoRoot $rollbackRoot
+    $transactionStarted = $true
+    Invoke-FailureInjection 'apply-content-write'
+    foreach ($plan in $contentPlans) {
+        Write-StagedFileAtomically (Join-Path $contentRoot $plan.RelativePath) (Join-Path $repoRoot $plan.RelativePath) $transactionId
+    }
+    Invoke-FailureInjection 'apply-path-rename'
+    foreach ($plan in $renamePlans) {
+        Rename-Item -LiteralPath $plan.Source -NewName $plan.NewName
+        Write-Host "    Renamed $($plan.OldName) -> $($plan.NewName)" -ForegroundColor DarkGray
+    }
+    Invoke-FailureInjection 'apply-settings-activation'
+    if (Test-Path -LiteralPath $claudeTemplate) {
+        Move-Item -LiteralPath $claudeTemplate -Destination $claudeSettings
+        Write-Host "    Activated .claude/settings.json" -ForegroundColor DarkGray
+    }
+    Invoke-FailureInjection 'apply-template-removal'
+    foreach ($relativePath in $templateOnly) {
+        $path = Join-Path $repoRoot $relativePath
+        if (Test-Path -LiteralPath $path) { Remove-Item -LiteralPath $path -Force }
+    }
+    if ((Test-Path -LiteralPath $docsDir) -and -not (Get-ChildItem -LiteralPath $docsDir -Force)) {
+        Remove-Item -LiteralPath $docsDir -Force
+    }
+    if (-not $KeepScript) {
+        if (Test-Path -LiteralPath $siblingSh) { Remove-Item -LiteralPath $siblingSh -Force }
+        Remove-Item -LiteralPath $selfPath -Force
+    }
+    $transactionStarted = $false
+    Remove-Item -LiteralPath $transactionRoot -Recurse -Force
+} catch {
+    $message = $_.Exception.Message
+    $location = $_.InvocationInfo.PositionMessage
+    $rollbackMessage = $null
+    if ($transactionStarted) {
+        try {
+            Remove-MutableTree $repoRoot
+            Copy-MutableTree $rollbackRoot $repoRoot
+        } catch {
+            $rollbackMessage = $_.Exception.Message
+        }
+    }
+    if ($transactionRoot -and (Test-Path -LiteralPath $transactionRoot)) {
+        try { Remove-Item -LiteralPath $transactionRoot -Recurse -Force } catch { }
+    }
+    if ($rollbackMessage) { throw "Initialization failed: $message at $location Rollback failed: $rollbackMessage" }
+    throw "Initialization failed: $message at $location"
 }
 
-# 3) Activate the Claude Code shared settings (shipped inert as a .template file).
-$claudeTemplate = Join-Path $repoRoot '.claude/settings.json.template'
-if (Test-Path $claudeTemplate) {
-    Move-Item -LiteralPath $claudeTemplate -Destination (Join-Path $repoRoot '.claude/settings.json') -Force
-    Write-Host "    Activated .claude/settings.json" -ForegroundColor DarkGray
-}
-
-# 4) Remove template-only files.
-$templateOnly = @('TEMPLATE.md', 'docs/AGENT-INIT-GUIDE.md')
-foreach ($rel in $templateOnly) {
-    $p = Join-Path $repoRoot $rel
-    if (Test-Path $p) { Remove-Item -LiteralPath $p -Force }
-}
-# Drop docs/ if it's now empty.
-$docsDir = Join-Path $repoRoot 'docs'
-if ((Test-Path $docsDir) -and -not (Get-ChildItem -LiteralPath $docsDir -Force)) {
-    Remove-Item -LiteralPath $docsDir -Force
-}
-
+Write-Host "    Updated contents in $($contentPlans.Count) file(s)." -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "Done. Next steps:" -ForegroundColor Green
 Write-Host "  1. uv run pytest"
@@ -186,9 +304,3 @@ Write-Host "  3. Review LICENSE (author/year) and the package metadata in pyproj
 Write-Host "  4. Publishing: add the PYPI_API_TOKEN repo secret, or delete"
 Write-Host "     .github/workflows/release.yml and the [project.urls] / packaging metadata."
 Write-Host "  5. Replace src/$packageName with your code and delete the sample test, then commit."
-
-# Remove both initializers unless asked to keep them.
-if (-not $KeepScript) {
-    if (Test-Path $siblingSh) { Remove-Item -LiteralPath $siblingSh -Force }
-    Remove-Item -LiteralPath $selfPath -Force
-}

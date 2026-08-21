@@ -14,6 +14,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -
 
 ### Fixed
--
+- Make template initialization transactional across staging, renames, settings activation, and cleanup.
 
 [Unreleased]: https://github.com/__GitHubOwner__/__ProjectName__/commits/main
