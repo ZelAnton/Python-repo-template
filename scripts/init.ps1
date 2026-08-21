@@ -89,6 +89,27 @@ if (-not $AuthorEmail) {
 }
 if (-not $GitHubOwner) { $GitHubOwner = 'your-org' }
 if (-not $Description) { $Description = 'TODO: project description' }
+if ($Year -lt 0) {
+    throw "Invalid -Year '$Year'. Use a non-negative number."
+}
+
+# These values are copied into TOML, Markdown, YAML block scalars, and shell
+# source. Reject characters that could change any of those contexts before the
+# first file is touched. Safe values are kept verbatim in every target format.
+$unsafeMetadataChars = [char[]]@('"', "'", '\', '$', '`', ';', '&', '|', '<', '>')
+function Assert-SafeMetadata([string]$parameterName, [string]$value) {
+    if ($value -match '[\x00-\x1F\x7F]' -or $value.IndexOfAny($unsafeMetadataChars) -ge 0) {
+        throw "Invalid $parameterName. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+    }
+}
+
+Assert-SafeMetadata '-Author' $Author
+Assert-SafeMetadata '-AuthorEmail' $AuthorEmail
+Assert-SafeMetadata '-GitHubOwner' $GitHubOwner
+Assert-SafeMetadata '-Description' $Description
+if ($GitHubOwner -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$') {
+    throw "Invalid -GitHubOwner '$GitHubOwner'. Use a GitHub owner name of 1-39 letters, digits, or internal hyphens."
+}
 
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $selfPath = $PSCommandPath
@@ -103,9 +124,8 @@ $replacements = [ordered]@{
     '__Year__'        = "$Year"
 }
 
-# Values written into TOML files (pyproject.toml) sit inside double-quoted strings
-# — a literal " or \ in an author/description would break the manifest, so escape
-# them for .toml targets. The derived package name is [a-z0-9_] only, so it is safe.
+# Keep TOML escaping defensive even though the metadata preflight above rejects
+# quotes and backslashes. The derived package name is [a-z0-9_] only, so it is safe.
 $tomlReplacements = [ordered]@{}
 foreach ($key in $replacements.Keys) {
     $tomlReplacements[$key] = $replacements[$key].Replace('\', '\\').Replace('"', '\"')

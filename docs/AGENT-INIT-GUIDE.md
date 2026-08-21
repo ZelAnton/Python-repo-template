@@ -72,6 +72,9 @@ Confirm these facts by reading, not by assuming:
    substitutes tokens, derives and renames the `src/` package dir, activates
    `.claude/settings.json` from its `.template`, and deletes `TEMPLATE.md`, this
    guide, and (unless `-KeepScript`) both initializers — `check-env.{ps1,sh}` stay.
+   Metadata values are validated before any file is changed. Control characters,
+   quotes, backslashes, shell expansion/operators, and invalid GitHub owner names
+   are rejected; a failed validation leaves the checkout unchanged.
 4. **Verify**: `uv run pytest`, then `uv run ruff check . && uv run mypy`.
 5. Replace the placeholder `greet` with the real API, delete the sample test, fill in
    the `CLAUDE.md` "Architecture" section, run `uv lock` and commit the lockfile, and

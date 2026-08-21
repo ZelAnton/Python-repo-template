@@ -87,15 +87,40 @@ fi
 [ -n "$description" ]  || description="TODO: project description"
 [ -n "$year" ]         || year="$(date +%Y)"
 
+if ! printf '%s' "$year" | LC_ALL=C grep -Eq '^[0-9]+$'; then
+  die "invalid --year '$year'. Use a non-negative number."
+fi
+
+# These values are copied into TOML, Markdown, YAML block scalars, and shell
+# source. Reject characters that could change any of those contexts before the
+# first file is touched. Safe values are kept verbatim in every target format.
+assert_safe_metadata() {
+  local label=$1 value=$2 unsafe=0
+  if printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]"$`\\;&|<>]'; then
+    unsafe=1
+  fi
+  case "$value" in
+    *$'\n'*) unsafe=1 ;;
+    *"'"*) unsafe=1 ;;
+  esac
+  [ "$unsafe" -eq 0 ] || die "invalid $label. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+}
+
+assert_safe_metadata "--author" "$author"
+assert_safe_metadata "--author-email" "$author_email"
+assert_safe_metadata "--github-owner" "$github_owner"
+assert_safe_metadata "--description" "$description"
+if ! printf '%s' "$github_owner" | LC_ALL=C grep -Eq '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'; then
+  die "invalid --github-owner '$github_owner'. Use a GitHub owner name of 1-39 letters, digits, or internal hyphens."
+fi
+
 script_dir="$(cd "$(dirname "$0")" && pwd)"
 repo_root="$(cd "$script_dir/.." && pwd)"
 self="$script_dir/$(basename "$0")"
 sibling_ps1="$script_dir/init.ps1"
 
-# Values written into TOML strings (pyproject.toml name/description/authors/urls)
-# sit inside double-quoted strings — escape backslash then quote so a literal " or
-# \ in an author/description can't break the manifest. The derived package name is
-# [a-z0-9_] only, so it needs no escaping.
+# Keep TOML escaping defensive even though the metadata preflight above rejects
+# quotes and backslashes. The derived package name is [a-z0-9_] only, so it is safe.
 toml_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 project_t="$(toml_escape "$project_name")"
 author_t="$(toml_escape "$author")"

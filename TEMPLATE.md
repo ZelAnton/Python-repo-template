@@ -114,6 +114,11 @@ template the step is a guaranteed no-op (it requires `TEMPLATE.md` *and*
   the resolved tree; CodeQL adds static analysis.
 - **Release ordering** — the workflow publishes to PyPI as the single irreversible
   pivot, then pushes the tag, so a blocked push can't orphan a release.
+- **Initializer metadata validation** — `init.ps1` and `init.sh` reject control
+  characters, quotes, backslashes, shell expansion, and shell operators in author,
+  email, owner, and description values before changing any file. GitHub owners must
+  be 1–39 characters with only letters, digits, and internal hyphens. A rejected
+  initialization leaves the checkout unchanged.
 
 ## Post-setup checklist
 
