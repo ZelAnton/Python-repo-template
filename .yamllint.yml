@@ -6,7 +6,7 @@
 # (tabs, duplicate keys, bad indentation, trailing whitespace) while silencing
 # the rules that fight normal Actions YAML.
 #
-# Run locally with:  uvx yamllint .    (or: yamllint .)
+# Run locally with:  uv run --locked yamllint .
 
 extends: default
 

@@ -50,6 +50,7 @@ dev = [
   "pytest>=9.1.1",
   "mypy>=2.3.0",
   "ruff>=0.16.2",
+  "yamllint==1.37.1",
 ]
 
 # hatchling builds a wheel from the src/ layout; point it at the import package.
