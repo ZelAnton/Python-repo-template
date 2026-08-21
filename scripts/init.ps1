@@ -97,16 +97,29 @@ if ($Year -lt 0) {
 # source. Reject characters that could change any of those contexts before the
 # first file is touched. Safe values are kept verbatim in every target format.
 $unsafeMetadataChars = [char[]]@('"', "'", '\', '$', '`', ';', '&', '|', '<', '>')
-function Assert-SafeMetadata([string]$parameterName, [string]$value) {
-    if ($value -match '[\x00-\x1F\x7F]' -or $value.IndexOfAny($unsafeMetadataChars) -ge 0) {
-        throw "Invalid $parameterName. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+$unsafeUnicodePattern = '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'
+$markdownUnsafeChars = [char[]]@('[', ']', '(', ')', '#', '*', '_', '~')
+function Assert-SafeMetadata {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ParameterName,
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [switch]$RejectMarkdownSyntax
+    )
+
+    if ($Value -match $unsafeUnicodePattern -or $Value.IndexOfAny($unsafeMetadataChars) -ge 0) {
+        throw "Invalid $ParameterName. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+    }
+    if ($RejectMarkdownSyntax -and $Value.IndexOfAny($markdownUnsafeChars) -ge 0) {
+        throw "Invalid $ParameterName. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
     }
 }
 
 Assert-SafeMetadata '-Author' $Author
 Assert-SafeMetadata '-AuthorEmail' $AuthorEmail
 Assert-SafeMetadata '-GitHubOwner' $GitHubOwner
-Assert-SafeMetadata '-Description' $Description
+Assert-SafeMetadata '-Description' $Description -RejectMarkdownSyntax
 if ($GitHubOwner -notmatch '^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$') {
     throw "Invalid -GitHubOwner '$GitHubOwner'. Use a GitHub owner name of 1-39 letters, digits, or internal hyphens."
 }

@@ -95,15 +95,30 @@ fi
 # source. Reject characters that could change any of those contexts before the
 # first file is touched. Safe values are kept verbatim in every target format.
 assert_safe_metadata() {
-  local label=$1 value=$2 unsafe=0
-  if printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]"$`\\;&|<>]'; then
+  local label=$1 value=$2 unsafe=0 markdown_unsafe=0
+  if printf '%s' "$value" | grep -Pq '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'; then
     unsafe=1
   fi
   case "$value" in
-    *$'\n'*) unsafe=1 ;;
-    *"'"*) unsafe=1 ;;
+    *$'\n'*|*$'\r'*)
+      unsafe=1
+      ;;
+    *'"'*|*"'"*|*'\'*|*'$'*|*'`'*|*';'*|*'&'*|*'|'*|*'<'*|*'>'*)
+      unsafe=1
+      ;;
   esac
-  [ "$unsafe" -eq 0 ] || die "invalid $label. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+  case "$value" in
+    *'['*|*']'*|*'('*|*')'*|*'#'*|*'*'*|*'_'*|*'~'*)
+      unsafe=1
+      markdown_unsafe=1
+      ;;
+  esac
+  if [ "$unsafe" -ne 0 ]; then
+    if [ "$markdown_unsafe" -ne 0 ] && [ "$label" = "--description" ]; then
+      die "invalid $label. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
+    fi
+    die "invalid $label. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
+  fi
 }
 
 assert_safe_metadata "--author" "$author"

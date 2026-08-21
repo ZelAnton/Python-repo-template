@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 
-
 REPO_ROOT = Path(__file__).parents[1]
 SAFE_VALUES = {
     "project_name": "acme-widgets",
@@ -178,6 +177,53 @@ def test_unsafe_metadata_is_rejected_without_partial_mutation(
     assert "unsafe" in (result.stdout + result.stderr).lower()
     assert _snapshot(root) == before
     assert not (root / "pwned").exists()
+
+
+@pytest.mark.parametrize("separator", ("\u0085", "\u2028", "\u2029"))
+@pytest.mark.parametrize("field", ("author", "author_email", "github_owner", "description"))
+def test_unicode_control_and_line_separators_are_rejected_without_mutation(
+    tmp_path: Path,
+    initializer: tuple[str, str],
+    field: str,
+    separator: str,
+) -> None:
+    kind, executable = initializer
+    root = _copy_template(tmp_path)
+    before = _snapshot(root)
+    values = SAFE_VALUES.copy()
+    values[field] = f"safe{separator}value"
+
+    result = _run_initializer(root, kind, executable, values)
+
+    assert result.returncode != 0
+    assert "unsafe" in (result.stdout + result.stderr).lower()
+    assert _snapshot(root) == before
+
+
+@pytest.mark.parametrize(
+    "description",
+    (
+        "[click](https://example.invalid)",
+        "# heading",
+        "*emphasis*",
+        "- [ ] task",
+    ),
+)
+def test_markdown_description_syntax_is_rejected_without_mutation(
+    tmp_path: Path,
+    initializer: tuple[str, str],
+    description: str,
+) -> None:
+    kind, executable = initializer
+    root = _copy_template(tmp_path)
+    before = _snapshot(root)
+    values = SAFE_VALUES | {"description": description}
+
+    result = _run_initializer(root, kind, executable, values)
+
+    assert result.returncode != 0
+    assert "markdown" in (result.stdout + result.stderr).lower()
+    assert _snapshot(root) == before
 
 
 @pytest.mark.parametrize("kind", ("sh", "ps1"))
