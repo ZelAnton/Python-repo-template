@@ -99,6 +99,9 @@ if ($Year -lt 0) {
 $unsafeMetadataChars = [char[]]@('"', "'", '\', '$', '`', ';', '&', '|', '<', '>')
 $unsafeUnicodePattern = '[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]'
 $markdownUnsafeChars = [char[]]@('[', ']', '(', ')', '#', '*', '_', '~')
+# Description is a standalone README paragraph; reject Markdown block starters
+# before any template file is changed.
+$markdownBlockPattern = '(^[\t ]{4}|^[\t ]{0,3}(?:[-+*][\t ]+.*|[0-9]{1,9}[.)][\t ]+.*|[-+*]|[0-9]{1,9}[.)]|(?:-[\t ]*){3,}|(?:_[\t ]*){3,}|(?:\*[\t ]*){3,})$)'
 function Assert-SafeMetadata {
     param(
         [Parameter(Mandatory = $true)]
@@ -111,7 +114,7 @@ function Assert-SafeMetadata {
     if ($Value -match $unsafeUnicodePattern -or $Value.IndexOfAny($unsafeMetadataChars) -ge 0) {
         throw "Invalid $ParameterName. The value contains a control character, quote, backslash, or shell operator; these values are unsafe in generated TOML/YAML/Markdown/shell contexts."
     }
-    if ($RejectMarkdownSyntax -and $Value.IndexOfAny($markdownUnsafeChars) -ge 0) {
+    if ($RejectMarkdownSyntax -and ($Value.IndexOfAny($markdownUnsafeChars) -ge 0 -or $Value -match $markdownBlockPattern)) {
         throw "Invalid $ParameterName. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
     }
 }

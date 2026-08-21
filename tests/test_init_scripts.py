@@ -207,6 +207,14 @@ def test_unicode_control_and_line_separators_are_rejected_without_mutation(
         "# heading",
         "*emphasis*",
         "- [ ] task",
+        "- list item",
+        "+ list item",
+        "1. ordered item",
+        "1) ordered item",
+        "---",
+        "- - -",
+        "    indented code",
+        "\tindented code",
     ),
 )
 def test_markdown_description_syntax_is_rejected_without_mutation(
@@ -224,6 +232,40 @@ def test_markdown_description_syntax_is_rejected_without_mutation(
     assert result.returncode != 0
     assert "markdown" in (result.stdout + result.stderr).lower()
     assert _snapshot(root) == before
+
+
+@pytest.mark.parametrize(
+    "description",
+    (
+        "- list item",
+        "+ list item",
+        "1. ordered item",
+        "---",
+        "- - -",
+        "    indented code",
+        "\tindented code",
+    ),
+)
+def test_markdown_block_rejection_has_power_shell_and_posix_parity(
+    tmp_path: Path, description: str
+) -> None:
+    bash = _bash_executable()
+    pwsh = _pwsh_executable()
+    posix_root = _copy_template(tmp_path / "posix")
+    powershell_root = _copy_template(tmp_path / "powershell")
+    values = SAFE_VALUES | {"description": description}
+    posix_before = _snapshot(posix_root)
+    powershell_before = _snapshot(powershell_root)
+
+    posix_result = _run_initializer(posix_root, "sh", bash, values)
+    powershell_result = _run_initializer(powershell_root, "ps1", pwsh, values)
+
+    assert posix_result.returncode != 0
+    assert powershell_result.returncode != 0
+    assert "markdown" in (posix_result.stdout + posix_result.stderr).lower()
+    assert "markdown" in (powershell_result.stdout + powershell_result.stderr).lower()
+    assert _snapshot(posix_root) == posix_before
+    assert _snapshot(powershell_root) == powershell_before
 
 
 @pytest.mark.parametrize("kind", ("sh", "ps1"))

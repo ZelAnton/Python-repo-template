@@ -113,6 +113,12 @@ assert_safe_metadata() {
       markdown_unsafe=1
       ;;
   esac
+  # Description is a standalone README paragraph; reject Markdown block
+  # starters before any template file is changed.
+  if printf '%s' "$value" | grep -Eq '(^[[:blank:]]{4}|^[[:blank:]]{0,3}([-+*][[:blank:]]+.*|[0-9]{1,9}[.)][[:blank:]]+.*|[-+*]|[0-9]{1,9}[.)]|(-[[:blank:]]*){3,}|(_[[:blank:]]*){3,}|(\*[[:blank:]]*){3,})$)'; then
+    unsafe=1
+    markdown_unsafe=1
+  fi
   if [ "$unsafe" -ne 0 ]; then
     if [ "$markdown_unsafe" -ne 0 ] && [ "$label" = "--description" ]; then
       die "invalid $label. The value contains unsafe Markdown control syntax; use plain text for the generated README description."
