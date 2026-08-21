@@ -75,6 +75,11 @@ require_option_value() {
   local option="$1"
   [ "$#" -ge 2 ] || die "$option requires a value."
   case "$2" in
+    -)
+      ;;
+    '- '*|'---'|'- - -')
+      # Let the metadata preflight report Markdown block syntax for descriptions.
+      ;;
     -*) die "$option requires a value." ;;
   esac
 }
