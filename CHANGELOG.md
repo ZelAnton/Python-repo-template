@@ -29,6 +29,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   preserving transactional rollback and PowerShell output parity.
 - POSIX initializer options now reject missing values, including following option tokens, before changing the checkout.
 - Accept safe metadata such as underscored email addresses consistently in POSIX and PowerShell initializers while retaining unsafe-input rejection.
-- Report POSIX command failures during metadata preflight and run initializer tests with Git Bash when Windows CI has no WSL distribution.
+- Report POSIX command failures during metadata preflight and skip POSIX tests on Windows runners without WSL.
 
 [Unreleased]: https://github.com/__GitHubOwner__/__ProjectName__/commits/main
