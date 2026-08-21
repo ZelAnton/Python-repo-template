@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Run YAML lint through the pinned project dependency managed by `uv`.
 
 ### Fixed
+- Preserve the executable bit on the POSIX initializer so generated repositories
+  can invoke `scripts/init.sh` directly on Unix-like systems.
 - Report POSIX `find` traversal failures before initialization can mutate or
   claim success for a checkout.
 - Reject unsafe initializer metadata before file mutation so generated release
