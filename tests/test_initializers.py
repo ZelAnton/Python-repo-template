@@ -4,6 +4,7 @@ import os
 import shlex
 import shutil
 import subprocess
+from functools import cache
 from pathlib import Path
 
 import pytest
