@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 -
 
 ### Changed
+- The template and generated-repository guidance now use Git directly without secondary version-control metadata.
 - Run YAML lint through the pinned project dependency managed by `uv`.
 
 ### Fixed
