@@ -33,7 +33,7 @@ jobs:
           bash "$generated_dir/scripts/init.sh" --project-name template-self-test
           echo "GENERATED_REPOSITORY=$generated_dir" >> "$GITHUB_ENV"
 
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
 
@@ -58,7 +58,7 @@ jobs:
           echo "GENERATED_REPOSITORY=$generated_dir" >> "$GITHUB_ENV"
       # setup-uv installs uv and provisions the Python pinned by .python-version /
       # requires-python on demand; enable-cache reuses the resolver/download cache.
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       # Formatting must be clean (CI gate) and the lint set must pass.
@@ -79,7 +79,7 @@ jobs:
           git archive --format=tar HEAD | tar -x -C "$generated_dir"
           bash "$generated_dir/scripts/init.sh" --project-name template-self-test
           echo "GENERATED_REPOSITORY=$generated_dir" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       # mypy --strict is this template's warnings-as-errors gate for types.
@@ -102,7 +102,7 @@ jobs:
           git archive --format=tar HEAD | tar -x -C "$generated_dir"
           bash "$generated_dir/scripts/init.sh" --project-name template-self-test
           echo "GENERATED_REPOSITORY=$generated_dir" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       # The template-only suites run against the untouched checkout because they
@@ -128,7 +128,7 @@ jobs:
           git archive --format=tar HEAD | tar -x -C "$generated_dir"
           bash "$generated_dir/scripts/init.sh" --project-name template-self-test
           echo "GENERATED_REPOSITORY=$generated_dir" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       # Prove the package builds cleanly — the same step the release runs.
@@ -147,7 +147,7 @@ jobs:
           git archive --format=tar HEAD | tar -x -C "$generated_dir"
           bash "$generated_dir/scripts/init.sh" --project-name template-self-test
           echo "GENERATED_REPOSITORY=$generated_dir" >> "$GITHUB_ENV"
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
         with:
           enable-cache: true
       # Scan the resolved dependency tree against the PyPI Advisory Database
